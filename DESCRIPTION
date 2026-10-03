@@ -1,14 +1,15 @@
 Package: cmbridge
 Type: Package
 Title: Conditional-Moment Learners for Bridge and Adjoint Equations
-Version: 0.1.1
+Version: 0.2.0
 Authors@R: c(person("OpenAI", role = c("aut", "cre"), email = "noreply@example.com"))
 Description: Standardized estimators for functions identified by conditional
     moment restrictions of the form E[Y - D h(X) | Z] = 0. Implements sieve
     minimum distance, Landweber iterative regularization, and a scalable kernel
     maximum-moment-restriction learner, with convenience wrappers for the
     inverse-probability bridge and adjoint equations used in proximal and
-    shadow-variable estimation.
+    shadow-variable estimation. Cross-validated convex ensembles combine
+    candidate learners using a common kernel conditional-moment loss.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true

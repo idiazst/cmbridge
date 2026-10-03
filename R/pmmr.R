@@ -5,7 +5,7 @@
   ee <- eigen(Kcc, symmetric = TRUE)
   vmax <- max(ee$values)
   keep <- ee$values > max(tol * vmax, ridge)
-  if (!any(keep)) stop("Nyström kernel matrix has no numerically positive eigenvalues.", call. = FALSE)
+  if (!any(keep)) stop("Nystrom kernel matrix has no numerically positive eigenvalues.", call. = FALSE)
   transform <- ee$vectors[, keep, drop = FALSE] %*%
     diag(1 / sqrt(ee$values[keep] + ridge), nrow = sum(keep))
   list(centers = centers, bandwidth = bandwidth, transform = transform)

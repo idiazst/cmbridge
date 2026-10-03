@@ -141,6 +141,12 @@ moment_loss <- function(object, response = NULL, diagonal = NULL,
   pred <- rep(0, length(y))
   if (any(active)) pred[active] <- predict(object, x[active, , drop = FALSE])
   r <- y - d * pred
+  if (inherits(object, "cmbridge_ensemble")) {
+    if (any(!is.finite(z)) || any(!is.finite(r))) {
+      stop("new-data moment loss requires finite instruments and residuals.", call. = FALSE)
+    }
+    return(.ensemble_gram(matrix(r, ncol = 1L), z, object$scoring_kernel)[1, 1])
+  }
   Q <- object$instrument_features(z)
   m <- as.numeric(crossprod(Q, r) / length(y))
   W <- object$moment_weight
