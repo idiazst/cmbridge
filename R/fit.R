@@ -1,6 +1,6 @@
 #' Fit a conditional-moment function
 #'
-#' Fits a function h satisfying E[Y - D h(X) | Z] = 0 using one of three
+#' Fits a function h satisfying E[Y - D h(X) | Z] = 0 using one of four
 #' standardized learners.
 #'
 #' @param response Numeric response Y.
@@ -8,12 +8,14 @@
 #' @param target Numeric vector or matrix X, the argument of h. Values may be
 #'   missing only on rows where diagonal is zero.
 #' @param instrument Numeric vector or matrix Z defining the conditional moment.
-#' @param method One of "sieve_md", "landweber", or "pmmr".
-#' @param control Method-specific control list.
+#' @param method One of "sieve_md", "landweber", "pmmr", or "saturated_l1".
+#' @param control Method-specific control list. The cell sieve, Landweber and PMMR support
+#'   positive links with unrestricted real coefficients. Optional lower and upper
+#'   bounds must be infinite; post-fit clipping is not supported.
 #' @return An object of class cmbridge_fit.
 #' @export
 fit_cm <- function(response, diagonal = NULL, target, instrument,
-                   method = c("sieve_md", "landweber", "pmmr"), control = list()) {
+                   method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
   method <- match.arg(method)
   y <- as.numeric(response)
   d <- if (is.null(diagonal)) rep(1, length(y)) else as.numeric(diagonal)
@@ -26,10 +28,20 @@ fit_cm <- function(response, diagonal = NULL, target, instrument,
   active <- abs(d) > 0
   if (any(!is.finite(x[active, , drop = FALSE]))) stop("target must be finite wherever diagonal is nonzero.", call. = FALSE)
 
+  lower <- if (is.null(control$lower)) -Inf else control$lower
+  upper <- if (is.null(control$upper)) Inf else control$upper
+  if (length(lower) != 1L || length(upper) != 1L ||
+      is.na(lower) || is.na(upper) || lower > upper) {
+    stop("lower and upper must be ordered scalar prediction bounds.", call. = FALSE)
+  }
+  if (is.finite(lower) || is.finite(upper)) {
+    stop("Post-fit prediction bounds are not supported. Use a supported model parameterization instead of post-fit bounds.", call. = FALSE)
+  }
   core <- switch(method,
     sieve_md = .fit_sieve_md(y, d, x, z, control),
     landweber = .fit_landweber(y, d, x, z, control),
-    pmmr = .fit_pmmr(y, d, x, z, control)
+    pmmr = .fit_pmmr(y, d, x, z, control),
+    saturated_l1 = .fit_saturated_l1(y, d, x, z, control)
   )
 
   out <- c(core, list(
@@ -57,7 +69,7 @@ fit_cm <- function(response, diagonal = NULL, target, instrument,
 #' @param control Method-specific control list.
 #' @return A cmbridge_fit object.
 #' @export
-fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr"), control = list()) {
+fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
   M <- as.numeric(M)
   if (anyNA(M) || any(M < 0) || any(M > 1)) stop("M must lie in [0,1].", call. = FALSE)
   fit <- fit_cm(rep(1, length(M)), M, V, B, method = match.arg(method), control = control)
@@ -79,7 +91,7 @@ fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr"), con
 #' @param control Method-specific control list.
 #' @return A cmbridge_fit object.
 #' @export
-fit_adjoint <- function(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr"), control = list()) {
+fit_adjoint <- function(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
   B <- .as_matrix(B, "B")
   V <- .as_matrix(V, "V")
   M <- as.numeric(M)

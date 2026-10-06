@@ -17,16 +17,36 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
   out
 }
 
-.fit_basis_spec <- function(x, type = c("bs", "poly"), degree = 3L, df = 6L) {
+.fit_basis_spec <- function(x, type = c("bs", "poly", "cell"), degree = 3L, df = 6L) {
   type <- match.arg(type)
   x <- .as_matrix(x)
   if (anyNA(x)) stop("basis fitting data cannot contain missing values.", call. = FALSE)
+  if (type == "cell") {
+    return(list(type = type, levels = sort(unique(.cell_keys(x))), p = ncol(x)))
+  }
   if (type == "poly") {
     return(list(type = type, degree = as.integer(degree), p = ncol(x)))
   }
   specs <- vector("list", ncol(x))
   for (j in seq_len(ncol(x))) {
+    if (length(unique(x[, j])) == 1L) {
+      # A constant column cannot identify a spline effect. Keep its learned
+      # contribution constant for new values instead of evaluating splines
+      # with identical boundary knots, which can return NaNs.
+      specs[[j]] <- list(constant = TRUE)
+      next
+    }
     b <- splines::bs(x[, j], df = df, degree = degree, intercept = FALSE)
+    knots <- attr(b, "knots"); boundary <- attr(b, "Boundary.knots")
+    # bs() leaves all-equal boundary knots in place. Its extrapolation then
+    # evaluates derivatives at a zero-width pivot and can return NaNs.
+    # Use the same one-eighth inward spacing as bs()'s ordinary adjustment.
+    if (length(knots) && (all(knots == boundary[1L]) || all(knots == boundary[2L]))) {
+      knots[] <- if (all(knots == boundary[1L])) boundary[1L] + diff(boundary) / 8 else
+        boundary[2L] - diff(boundary) / 8
+      b <- splines::bs(x[, j], knots = knots, Boundary.knots = boundary,
+                       degree = degree, intercept = FALSE)
+    }
     specs[[j]] <- list(
       knots = attr(b, "knots"),
       Boundary.knots = attr(b, "Boundary.knots"),
@@ -39,10 +59,28 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
 .eval_basis_spec <- function(x, spec) {
   x <- .as_matrix(x)
   if (ncol(x) != spec$p) stop("new data have the wrong number of columns.", call. = FALSE)
+  if (spec$type == "cell") {
+    index <- match(.cell_keys(x), spec$levels)
+    out <- matrix(0, nrow(x), length(spec$levels) + 1L)
+    out[, 1L] <- 1
+    seen <- which(!is.na(index))
+    out[cbind(seen, 1L + index[seen])] <- 1
+    return(out)
+  }
   if (spec$type == "poly") return(poly_basis(x, degree = spec$degree, intercept = TRUE))
+  if (!nrow(x)) {
+    # A bridge validation sample may have no measured outcomes. Its spline
+    # prediction design is empty, but must retain the fitted column count.
+    # splines::bs() does not accept a zero-length vector with fixed knots.
+    width <- 1L + sum(vapply(spec$specs, function(sj) {
+      if (isTRUE(sj$constant)) 0L else length(sj$knots) + as.integer(sj$degree)
+    }, integer(1)))
+    return(matrix(numeric(), nrow = 0L, ncol = width))
+  }
   out <- matrix(1, nrow(x), 1L)
   for (j in seq_len(ncol(x))) {
     sj <- spec$specs[[j]]
+    if (isTRUE(sj$constant)) next
     bj <- splines::bs(
       x[, j], knots = sj$knots, Boundary.knots = sj$Boundary.knots,
       degree = sj$degree, intercept = FALSE

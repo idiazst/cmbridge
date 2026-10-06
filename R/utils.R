@@ -1,3 +1,9 @@
+.prediction_closure <- function(fun, bindings) {
+  # Retain prediction parameters without retaining the fitting frame's arrays.
+  environment(fun) <- list2env(bindings, parent = environment(.prediction_closure))
+  fun
+}
+
 .as_matrix <- function(x, name = "x") {
   if (is.null(dim(x))) x <- matrix(x, ncol = 1L)
   x <- as.matrix(x)

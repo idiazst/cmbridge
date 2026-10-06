@@ -1,14 +1,18 @@
 # cmbridge
 
-`cmbridge` standardizes three learners for conditional moment equations of the form
+`cmbridge` standardizes learners for conditional moment equations of the form
 
 `E[Y - D h(X) | Z] = 0`.
 
 The initial learner library contains:
 
-1. `sieve_md`: sieve minimum distance with polynomial or additive B-spline bases;
+1. `sieve_md`: sieve minimum distance with polynomial, additive B-spline, or saturated joint-category bases;
 2. `landweber`: Landweber iterative regularization of the same empirical conditional-moment operator;
 3. `pmmr`: scalable Gaussian-kernel proxy/maximum-moment restriction using low-rank target and critic features.
+
+For finite discrete support, `saturated_l1` adds all joint-cell interactions and
+fits the empirical conditional moments with an L1 penalty. The original three
+learners remain the default ensemble library.
 
 The package exposes a common generic interface and two manuscript-oriented wrappers:
 
@@ -40,6 +44,13 @@ library(cmbridge)
 ```
 
 ## Cross-validated ensembles
+
+Use `control = list(target_basis = "cell", instrument_basis = "cell")`
+with `sieve_md` or `landweber` to give each observed joint combination of
+discrete inputs its own coefficient, including all interactions. The basis
+uses an unpenalized common constant plus cell deviations; previously unseen
+target combinations receive that constant. Raw predictions are unbounded. Finite `lower` or `upper` controls are rejected;
+post-fit clipping can invalidate a conditional-moment solution.
 
 The ensemble functions implement the convex conditional-moment stacking in
 Section 5.3.2 of the methodology paper. Fit candidate specifications within
@@ -92,4 +103,59 @@ stacking and do not implement the full longitudinal causal estimator.
 The independent ensemble selection validation is in
 [`idiazst/cmbridge-tests`](https://github.com/idiazst/cmbridge-tests).
 
+## Saturated discrete learners
+
+```r
+cells <- list(
+  small = list(method = "saturated_l1", control = list(penalty = 0.001 / sqrt(length(M)))),
+  medium = list(method = "saturated_l1", control = list(penalty = 0.01 / sqrt(length(M)))),
+  large = list(method = "saturated_l1", control = list(penalty = 0.1 / sqrt(length(M))))
+)
+bridge <- fit_bridge_ensemble(B, V, M, library = cells,
+                              fold_id = shared_inner_labels, kernel = "cell")
+```
+
+The cell scorer uses ordered pairs of distinct observations within each joint
+conditioning cell. It excludes self-products and divides each cell's sum by
+`n * (cell_count - 1)`. Singleton cells contribute zero and their count is
+recorded; a validation sample containing only singleton cells raises an error.
+Every conditioning variable, including treatment, is retained. Ensemble weights
+use the PSD projection of the averaged U-statistic Gram. `raw_gram`,
+`candidate_raw_cv_loss`, `raw_cv_loss`, and `psd_projection` retain the original
+criterion and projection diagnostics. Penalty CV uses raw U-statistic losses,
+which can be negative.
+
+Positive penalty grids are extended when their minimum is at a boundary. Every
+boundary choice is recorded as a failed attempt. Only an interior minimum is
+accepted; an unresolved boundary raises an error carrying the losses and attempt
+history. The default limit is 16 one-decade extensions, with four logarithmic
+points per extension. No zero penalty is introduced. `select_penalty_grid()` is
+shared with lmtp, and `cell_moment_gram()` supplies the common scorer.
+
+Learners use an
+unpenalized constant function and penalize joint-cell deviations; the constant
+is multiplied by the diagonal in the conditional-moment equation.
+
+Controls include `target_columns`, `instrument_columns`, `tolerance`, and
+`max_iter`. Predictions are unbounded; unseen target cells use the fitted
+constant. Finite bounds require a constrained optimizer and are rejected here. A warm-start
+penalty path is used, and incomplete solver fits raise an error.
+
+The observed-history longitudinal integration and exact-truth simulation are
+in the sibling lmtp development package and cmbridge-tests repository. Broad
+function classes contain the true discrete functions; small effective cell
+counts and weak inverse operators can still affect finite-sample performance.
+
 See `REVIEW.md` for the implementation review and method-selection rationale, `REFERENCES.bib` for citations, and `inst/simulations/validate_large_sample.R` for the large-sample recovery study.
+
+The joint-category `sieve_md` supports `control = list(target_basis = "cell", instrument_basis = "cell", link = "inverse_logit")`. It directly optimizes unrestricted real coefficients and predicts `1 / expit(eta) = 1 + exp(-eta)`, giving values above one. `link = "log"` uses an exponential parameterization, and the default `identity` link remains unrestricted on the function scale. The linked fit keeps the original ridge penalty on function-scale cell deviations, records optimizer traces and gradient checks, and imposes no coefficient bounds or prediction clipping.
+
+
+Landweber and PMMR also support `link = "inverse_logit"`. Landweber uses
+unrestricted nonlinear gradient updates with backtracking and iteration
+stopping. PMMR minimizes the transformed empirical moment loss and penalizes
+the RKHS linear predictor; it saves optimizer traces and a gradient check.
+Generic `fit_cm`/`fit_bridge` defaults retain identity for compatibility with
+existing polynomial and kernel specifications. The longitudinal integration
+explicitly uses inverse-expit for all three bridge candidates and identity
+for all three adjoint candidates.

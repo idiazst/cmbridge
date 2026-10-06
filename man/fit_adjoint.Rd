@@ -1,7 +1,7 @@
 \name{fit_adjoint}
 \alias{fit_adjoint}
 \title{Fit an adjoint representer}
-\usage{fit_adjoint(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr"), control = list())}
+\usage{fit_adjoint(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list())}
 \arguments{
 \item{B}{Variables indexing lambda.}
 \item{V}{Variables conditioning the adjoint equation.}

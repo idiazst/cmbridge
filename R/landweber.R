@@ -5,9 +5,10 @@
     target_df = 6L, instrument_df = 9L,
     max_iter = 2000L, n_iter = NULL,
     step_fraction = 0.95, weight_ridge = 1e-8,
-    init_intercept = TRUE, tol = 1e-10
+    init_intercept = TRUE, tol = 1e-10, link = "identity"
   ), control)
 
+  ctrl$link <- match.arg(ctrl$link, c("identity", "log", "inverse_logit"))
   active <- abs(d) > 0
   if (!any(active)) stop("diagonal is zero for every observation.", call. = FALSE)
   if (anyNA(x[active, , drop = FALSE])) stop("target may be missing only where diagonal is zero.", call. = FALSE)
@@ -20,6 +21,10 @@
   Hactive <- .eval_basis_spec(x[active, , drop = FALSE], xspec)
   H <- matrix(0, nrow(x), ncol(Hactive)); H[active, ] <- Hactive
   Q <- .eval_basis_spec(z, zspec)
+  if (ctrl$link != "identity") {
+    W <- .safe_inverse(crossprod(Q) / length(y) + ctrl$weight_ridge * diag(ncol(Q)), ridge = ctrl$weight_ridge)
+    return(.fit_linked_landweber(y, d, x, Hactive, Q, W, xspec, zspec, ctrl))
+  }
   n <- length(y)
 
   A <- crossprod(Q, d * H) / n
@@ -60,8 +65,11 @@
     residual = residual,
     moment_loss = as.numeric(crossprod(moment, W %*% moment)),
     tuning = c(ctrl, list(step = step, iterations_used = used, final_delta = last_delta)),
-    predict_fun = function(newx) as.numeric(.eval_basis_spec(.as_matrix(newx), xspec) %*% theta),
+    predict_fun = .prediction_closure(function(newx)
+      as.numeric(.eval_basis_spec(.as_matrix(newx), spec) %*% coefficient),
+      list(spec = xspec, coefficient = theta)),
     moment_weight = W,
-    instrument_features = function(newz) .eval_basis_spec(newz, zspec)
+    instrument_features = .prediction_closure(function(newz) .eval_basis_spec(newz, spec),
+                                              list(spec = zspec))
   )
 }

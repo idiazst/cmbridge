@@ -1,7 +1,7 @@
 \name{fit_bridge}
 \alias{fit_bridge}
 \title{Fit an inverse-probability bridge}
-\usage{fit_bridge(B, V, M, method = c("sieve_md", "landweber", "pmmr"), control = list())}
+\usage{fit_bridge(B, V, M, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list())}
 \arguments{
 \item{B}{Shadow-side variables.}
 \item{V}{Bridge-side variables; may be missing where M is zero.}

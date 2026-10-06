@@ -11,6 +11,18 @@ test_that("the common kernel Gram implements equation (22)", {
   expect_equal(cmbridge:::.ensemble_gram(residual, z, spec2), direct, tolerance = 1e-7)
 })
 
+test_that("cell scores remain finite when the product of counts exceeds integer range", {
+  # One cell: direct distinct-pair U-statistic with double denominators.
+  # 50,000 squared exceeds the 32-bit integer maximum.
+  n <- 50000L
+  z <- matrix(0, n, 1L)
+  residual <- cbind(rep(1, n), rep(c(-1, 3), length.out = n))
+  expected <- (tcrossprod(colSums(residual)) - crossprod(residual)) / (as.double(n) * (n - 1))
+  expect_silent(score <- cmbridge:::.ensemble_gram(residual, z, list(kernel = "cell")))
+  expect_true(all(is.finite(score)))
+  expect_equal(as.vector(score), as.vector(expected), tolerance = 1e-12)
+})
+
 test_that("simplex optimization handles interior, boundary, and singular optima", {
   sol <- cmbridge:::.simplex_qp(diag(c(1, 2, 4)))
   expect_equal(sol$weights, c(4, 2, 1) / 7, tolerance = 1e-8)
@@ -83,7 +95,8 @@ test_that("adjoint loading is common, trained within folds, and scored on comple
   weights <- f$fold_n_scored / sum(f$fold_n_scored)
   expected <- Reduce(`+`, Map(function(G, w) G * w, f$fold_gram, weights))
   dimnames(expected) <- dimnames(f$gram)
-  expect_equal(f$gram, expected)
+  expect_equal(f$raw_gram, expected)
+  expect_equal(f$gram, cmbridge:::.project_gram_psd(expected)$gram)
 })
 
 test_that("ensembles validate inputs and preserve the calling random state", {
@@ -101,4 +114,16 @@ test_that("ensembles validate inputs and preserve the calling random state", {
   expect_error(fit_bridge_ensemble(d$B, d$Vobs, d$M, fold_id = bad_folds), "complete cases")
   expect_error(fit_adjoint_ensemble(d$B, d$Vobs, d$M,
     function(train, validation) 1, n_folds = 3L), "callback")
+})
+test_that("bridge validation can score entirely unmeasured groups", {
+  B <- matrix(rep(0:1, 6), ncol = 1)
+  M <- c(rep(0, 4), rep(c(1, 0), 4))
+  V <- B; V[M == 0, ] <- NA
+  folds <- rep(1:3, each = 4)
+  f <- fit_bridge_ensemble(B, V, M, library = list(sieve = list(method = "sieve_md",
+    control = list(target_basis = "cell", instrument_basis = "cell"))),
+    fold_id = folds, kernel = "cell")
+  expect_true(all(is.finite(f$cv_residuals)))
+  expect_equal(f$cv_residuals[folds == 1, 1], rep(-1, 4))
+  expect_true(all(is.finite(predict(f, B))))
 })

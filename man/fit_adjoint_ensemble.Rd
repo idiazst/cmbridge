@@ -3,7 +3,7 @@
 \title{Cross-validated convex ensemble for an adjoint equation}
 \usage{
 fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
-  fold_id = NULL, seed = 1L, kernel = c("rbf", "linear"),
+  fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
   kernel_control = list(), solver_control = list())
 }
 \arguments{
