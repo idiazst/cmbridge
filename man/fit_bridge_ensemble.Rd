@@ -43,8 +43,11 @@ before simplex optimization. The raw matrix, raw candidate losses, and the
 projection adjustment are retained. Penalty selection uses the raw scalar
 U-statistic, without truncating negative losses to zero.
 
-A sieve or saturated L1 candidate can supply \code{penalty_scales}. For
+A sieve, Landweber or saturated L1 candidate can supply \code{penalty_scales}. For
 \code{sieve_md}, these are absolute ridge \code{lambda} values. For
+\code{landweber}, these are absolute positive \code{weight_ridge} values
+regularizing the conditioning-moment weight matrix, not the target coefficients.
+For
 \code{saturated_l1}, each scale is divided by the square root of the number
 of training people to obtain \code{penalty}. Penalty selection
 uses person-based training-only splits, and records boundary minima as failed

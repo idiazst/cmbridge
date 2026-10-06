@@ -148,6 +148,15 @@ Adjoint tuning reconstructs its loading within each penalty training sample.
 The same controls continue to support `saturated_l1`, whose scales are divided
 by the square root of the number of training people.
 
+For a `landweber` candidate, `penalty_scales` selects `weight_ridge`, the
+positive ridge in the conditioning-moment weight matrix. For example,
+`penalty_scales = 10^seq(-6, 0, by = .5)` supplies thirteen initial values.
+This regularizes the relative weights of conditioning directions; it does
+not penalize the target coefficients or remove conditioning variables.
+The same training-only person splits, raw U-statistic validation scores,
+boundary extension and failure rules apply. `penalty_parameter` records
+`"weight_ridge"`, and no tuning occurs unless the grid is explicitly supplied.
+
 Learners use an
 unpenalized constant function and penalize joint-cell deviations; the constant
 is multiplied by the diagonal in the conditional-moment equation.

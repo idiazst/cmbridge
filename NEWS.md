@@ -1,3 +1,7 @@
+# cmbridge 0.3.0.9021
+
+- Allow Landweber candidates to cross-validate their positive conditioning-weight ridge on the same training-only person splits and raw U-statistic criterion as other candidates. Preserve boundary extension, failed-trial records, target classes and existing solver checks; retain the selected parameter name and full tuning history.
+
 # cmbridge 0.3.0.9020
 
 - Preserve batched penalty-path evaluation and warm starts. Fall back to individual trials only when a batch raises an error; retain failed-trial diagnostics and the interior minimum rule.

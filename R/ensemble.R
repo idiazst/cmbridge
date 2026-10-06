@@ -270,9 +270,9 @@
           M[rows], response, candidate$method, control)
       }
       if (is.null(scales)) return(fit_at(index, loading, candidate$control))
-      if (!candidate$method %in% c("sieve_md", "saturated_l1") || !length(scales) ||
+      if (!candidate$method %in% c("sieve_md", "landweber", "saturated_l1") || !length(scales) ||
           any(!is.finite(scales)) || any(scales <= 0)) {
-        stop("Positive penalty_scales are supported for sieve_md and saturated_l1 candidates.")
+        stop("Positive penalty_scales are supported for sieve_md, landweber and saturated_l1 candidates.")
       }
       ids <- candidate$control$penalty_ids
       if (is.null(ids)) ids <- seq_len(n)
@@ -351,7 +351,8 @@
       out$penalty_cv$informative <- paired_count > 0L
       out$penalty_boundary <- selected$boundary_history
       out$penalty_status <- selected$status
-      out$penalty_parameter <- if (candidate$method == "sieve_md") "lambda" else "penalty"
+      out$penalty_parameter <- switch(candidate$method,
+        sieve_md = "lambda", landweber = "weight_ridge", saturated_l1 = "penalty")
       out$penalty_ids <- ids[index]
       out$penalty_fold_id <- labels
       out
