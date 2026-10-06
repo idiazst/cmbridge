@@ -1,7 +1,7 @@
 Package: cmbridge
 Type: Package
 Title: Conditional-Moment Learners for Bridge and Adjoint Equations
-Version: 0.3.0.9013
+Version: 0.3.0.9014
 Authors@R: c(person("OpenAI", role = c("aut", "cre"), email = "noreply@example.com"))
 Description: Standardized estimators for functions identified by conditional
     moment restrictions of the form E[Y - D h(X) | Z] = 0. Implements sieve

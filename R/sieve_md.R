@@ -186,6 +186,7 @@
   raw <- as.numeric(.safe_solve(S, b))
   start <- problem$sign * log(pmax(.1, raw - problem$offset))
   initial_loss <- problem$fn(start)
+  threshold <- 10 * sqrt(tolerance) * max(1, sqrt(abs(initial_loss)))
   fits <- list()
   trace <- data.frame(method = character(), convergence = integer(), loss = double(),
                       coefficient_gradient = double(), function_gradient = double())
@@ -195,7 +196,11 @@
     gap <- exp(problem$sign * par)
     # Near the limiting link value, inspect the function gradient as well as
     # the coefficient gradient: a nearly flat link must not hide a descent.
-    function_gradient <- max(pmax(0, -gradient), pmax(0, gradient) * pmin(1, gap))
+    # A positive function gradient still permits descent until the limiting
+    # value is approached to the requested numerical accuracy. Multiplying
+    # it by the gap a second time can wrongly accept a visible function
+    # error simply because the inverse-expit derivative is nearly flat.
+    function_gradient <- max(0, pmax(0, -gradient), gradient[gap > threshold])
     c(coefficient = max(abs(problem$gr(par))), function_value = function_gradient)
   }
   append_fit <- function(method, fit) {
@@ -208,7 +213,6 @@
   fit <- stats::optim(start, problem$fn, problem$gr, method = "BFGS",
                        control = list(maxit = max_iter, reltol = tolerance))
   append_fit("BFGS", fit)
-  threshold <- 10 * sqrt(tolerance) * max(1, sqrt(abs(initial_loss)))
   valid <- function(fit) all(is.finite(fit$par)) &&
     all(is.finite(fit$diagnostics)) && max(fit$diagnostics) <= threshold
   if (!valid(fits[[1L]])) {
@@ -224,11 +228,15 @@
     gap <- exp(problem$sign * candidate)
     gradient <- 2 * as.numeric(S %*% problem$value(candidate) - b) / sqrt(diag(S))
     hidden_descent <- which(gradient < -threshold & gap < .1)
-    if (!length(hidden_descent)) break
+    boundary_descent <- which(gradient > threshold & gap > threshold & gap < .1)
+    if (!length(hidden_descent) && !length(boundary_descent)) break
     # A finite restart revives a nearly flat link where increasing beta would
     # improve the objective. These are starting values, never coefficient
     # constraints: subsequent optimization is again over all real values.
     candidate[hidden_descent] <- problem$sign * log(.1)
+    # This is another finite starting value, not a coefficient bound. The
+    # subsequent optimizer can move away from the boundary in either direction.
+    candidate[boundary_descent] <- problem$sign * log(threshold / 10)
     fit <- stats::optim(candidate, problem$fn, problem$gr, method = "BFGS",
                         control = list(maxit = max_iter, reltol = tolerance))
     append_fit(paste0("BFGS restart ", restart), fit)
