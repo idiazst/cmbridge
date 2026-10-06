@@ -74,3 +74,19 @@ test_that("failed penalty trials are recorded without selecting their invalid fi
   expect_false(any(failed$penalty_cv$selected))
   expect_true(all(failed$penalty_cv$failed))
 })
+
+test_that("successful penalty batches retain vectorized evaluation", {
+  calls <- list()
+  selected <- select_penalty_grid(c(.01, .1, 1), function(scales) {
+    calls[[length(calls) + 1L]] <<- scales
+    log10(scales / .1)^2
+  })
+  expect_equal(length(calls), 1L)
+  expect_equal(calls[[1L]], c(.01, .1, 1))
+  expect_equal(selected$scale, .1)
+  expect_false(any(selected$penalty_cv$failed))
+  nonfinite <- select_penalty_grid(c(.01, .1, 1), function(scales)
+    ifelse(scales == 1, NaN, log10(scales / .1)^2))
+  expect_equal(nonfinite$scale, .1)
+  expect_true(nonfinite$penalty_cv$failed[3L])
+})

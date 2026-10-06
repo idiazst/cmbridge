@@ -1,3 +1,7 @@
+# cmbridge 0.3.0.9020
+
+- Preserve batched penalty-path evaluation and warm starts. Fall back to individual trials only when a batch raises an error; retain failed-trial diagnostics and the interior minimum rule.
+
 # cmbridge 0.2.0
 
 - Added `fit_bridge_ensemble()` and `fit_adjoint_ensemble()` for inner

@@ -77,11 +77,21 @@ select_penalty_grid <- function(scales, evaluate, max_extensions = 16L,
   for (attempt in 0:max_extensions) {
     # A failed or numerically overflowing penalty trial is inadmissible; it
     # must not invalidate other, stable penalties on the same training splits.
-    trials <- lapply(pending, function(scale) tryCatch({
-      loss <- evaluate(scale)
-      if (length(loss) != 1L || !is.finite(loss)) stop("Nonfinite penalty validation score.")
-      list(loss = as.numeric(loss), failure = "")
-    }, error = function(e) list(loss = Inf, failure = conditionMessage(e))))
+    # Preserve vectorized paths and warm starts when the batch succeeds.
+    # Retry points separately only if a batch error prevents isolating failures.
+    batch <- tryCatch({
+      values <- evaluate(pending)
+      if (length(values) != length(pending)) stop("Penalty evaluation returned the wrong number of scores.")
+      as.numeric(values)
+    }, error = function(e) NULL)
+    trials <- if (!is.null(batch)) lapply(batch, function(loss)
+      if (is.finite(loss)) list(loss = loss, failure = "") else
+        list(loss = Inf, failure = "Nonfinite penalty validation score.")) else
+      lapply(pending, function(scale) tryCatch({
+        loss <- evaluate(scale)
+        if (length(loss) != 1L || !is.finite(loss)) stop("Nonfinite penalty validation score.")
+        list(loss = as.numeric(loss), failure = "")
+      }, error = function(e) list(loss = Inf, failure = conditionMessage(e))))
     current <- vapply(trials, `[[`, 0, "loss")
     failures <- c(failures, vapply(trials, `[[`, "", "failure"))
     losses <- c(losses, current); rounds <- c(rounds, rep(attempt, length(pending)))
