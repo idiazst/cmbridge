@@ -53,16 +53,22 @@
   if (!is.finite(ctrl$step_fraction) || ctrl$step_fraction <= 0 || ctrl$step_fraction > 1)
     stop("step_fraction must lie in (0,1].", call. = FALSE)
   initial <- current <- problem$evaluate(theta)
-  used <- 0L; last_delta <- Inf; step <- NA_real_; reductions <- 0L
+  jacobian <- design$K %*% (current$derivative * design$H)
+  curvature <- crossprod(jacobian, W %*% jacobian)
+  norm <- max(eigen((curvature + t(curvature)) / 2, symmetric = TRUE, only.values = TRUE)$values)
+  if (!is.finite(norm) || norm <= 0)
+    stop("Conditional-moment operator has zero numerical norm.", call. = FALSE)
+  maximum_step <- ctrl$step_fraction / norm
+  # A fixed initial step with backtracking is nonlinear Landweber iteration.
+  # Re-inverting curvature at every iterate can explode the step when the
+  # inverse-expit derivative approaches zero in a small training sample.
+  # Backtracking may reduce this step, but never increases it. Coefficients
+  # remain unrestricted and iteration stopping remains the regularization.
+  used <- 0L; last_delta <- Inf; step <- maximum_step; reductions <- 0L
   for (iter in seq_len(n_iter)) {
-    jacobian <- design$K %*% (current$derivative * design$H)
-    curvature <- crossprod(jacobian, W %*% jacobian)
-    norm <- max(eigen((curvature + t(curvature)) / 2, symmetric = TRUE, only.values = TRUE)$values)
-    if (!is.finite(norm) || norm <= 0) break
     # Half the squared-loss gradient matches the original Landweber convention.
     gradient <- current$gradient / 2
     if (max(abs(gradient)) <= ctrl$tol) break
-    step <- ctrl$step_fraction / norm
     accepted <- FALSE
     for (attempt in 0:60) {
       proposal <- theta - step * gradient
@@ -83,9 +89,11 @@
   moment <- as.numeric(crossprod(Q, residual) / length(y))
   list(coefficients = theta, link_coefficients = theta, target_spec = xspec, instrument_spec = zspec,
     fitted = pred_train, residual = residual, moment_loss = as.numeric(crossprod(moment, W %*% moment)),
-    tuning = c(ctrl, list(step = step, iterations_used = used, final_delta = last_delta)),
+    tuning = c(ctrl, list(step = step, maximum_step = maximum_step,
+      iterations_used = used, final_delta = last_delta)),
     solver = list(method = "nonlinear Landweber", initial_loss = initial$loss, final_loss = current$loss,
-      iterations = used, backtracking_reductions = reductions, coefficient_gradient = max(abs(current$gradient)),
+      iterations = used, maximum_step = maximum_step, final_step = step,
+      backtracking_reductions = reductions, coefficient_gradient = max(abs(current$gradient)),
       stopped_by_tolerance = last_delta < ctrl$tol || max(abs(current$gradient / 2)) <= ctrl$tol,
       regularization = "iteration stopping"),
     predict_fun = .prediction_closure(function(newx) {

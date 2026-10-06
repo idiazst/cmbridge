@@ -159,3 +159,11 @@ Generic `fit_cm`/`fit_bridge` defaults retain identity for compatibility with
 existing polynomial and kernel specifications. The longitudinal integration
 explicitly uses inverse-expit for all three bridge candidates and identity
 for all three adjoint candidates.
+
+Linked Landweber splines use constant continuation outside their training
+boundaries (`target_extrapolation = "constant"`), and a fixed initial step
+that may decrease through backtracking. A regression test reproduces a small
+nested numerical-dose split where polynomial spline continuation produced
+validation values around 1e189 after the exponential link. The new model
+continuation prevents that overflow without clipping fitted bridge values.
+Identity adjoint fits retain their previous spline continuation.

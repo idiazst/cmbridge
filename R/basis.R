@@ -81,8 +81,14 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
   for (j in seq_len(ncol(x))) {
     sj <- spec$specs[[j]]
     if (isTRUE(sj$constant)) next
+    value <- x[, j]
+    if (identical(spec$extrapolation, "constant")) {
+      # Constant continuation is part of the basis definition. It never
+      # clips a fitted function or its link coefficients.
+      value <- pmin(sj$Boundary.knots[2L], pmax(sj$Boundary.knots[1L], value))
+    }
     bj <- splines::bs(
-      x[, j], knots = sj$knots, Boundary.knots = sj$Boundary.knots,
+      value, knots = sj$knots, Boundary.knots = sj$Boundary.knots,
       degree = sj$degree, intercept = FALSE
     )
     out <- cbind(out, bj)

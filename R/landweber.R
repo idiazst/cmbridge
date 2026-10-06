@@ -5,10 +5,13 @@
     target_df = 6L, instrument_df = 9L,
     max_iter = 2000L, n_iter = NULL,
     step_fraction = 0.95, weight_ridge = 1e-8,
-    init_intercept = TRUE, tol = 1e-10, link = "identity"
+    init_intercept = TRUE, tol = 1e-10, link = "identity", target_extrapolation = NULL
   ), control)
 
   ctrl$link <- match.arg(ctrl$link, c("identity", "log", "inverse_logit"))
+  if (is.null(ctrl$target_extrapolation))
+    ctrl$target_extrapolation <- if (ctrl$link == "identity") "polynomial" else "constant"
+  ctrl$target_extrapolation <- match.arg(ctrl$target_extrapolation, c("constant", "polynomial"))
   active <- abs(d) > 0
   if (!any(active)) stop("diagonal is zero for every observation.", call. = FALSE)
   if (anyNA(x[active, , drop = FALSE])) stop("target may be missing only where diagonal is zero.", call. = FALSE)
@@ -16,6 +19,7 @@
 
   xspec <- .fit_basis_spec(x[active, , drop = FALSE], ctrl$target_basis,
                            ctrl$target_degree, ctrl$target_df)
+  if (xspec$type == "bs") xspec$extrapolation <- ctrl$target_extrapolation
   zspec <- .fit_basis_spec(z, ctrl$instrument_basis,
                            ctrl$instrument_degree, ctrl$instrument_df)
   Hactive <- .eval_basis_spec(x[active, , drop = FALSE], xspec)

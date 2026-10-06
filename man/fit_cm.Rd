@@ -37,8 +37,12 @@ and \code{solver$parameters}. The \code{coefficients} field retains the
 function-scale common value and cell deviations for existing diagnostics.
 The positive sieve links require both joint-category bases.
 For \code{landweber}, the same links may be used with any supported basis;
-unrestricted nonlinear gradient updates with backtracking minimize the
+unrestricted nonlinear gradient updates with a fixed initial step and backtracking minimize the
 conditional-moment objective, regularized by iteration stopping.
+For linked Landweber splines, \code{target_extrapolation} defaults to
+\code{"constant"}: the basis continues at its boundary outside the training
+range. This is part of the model, not clipping of fitted function values.
+Identity fits retain \code{"polynomial"} continuation.
 For \code{pmmr}, the links transform the target Nystrom predictor inside
 the moment objective. The RKHS penalty applies to that linear predictor,
 rather than to the transformed function. Its unrestricted BFGS solver

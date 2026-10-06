@@ -44,7 +44,10 @@ test_that("all three bridge learners use inverse-expit during estimation", {
     expect_equal(moment_loss(f),moment_loss(f,rep(1,length(M)),M,observed,x),tolerance=1e-10)
     expect_equal(predict(unserialize(serialize(f,NULL)),as.matrix(grid)),prediction)
     expect_identical(predict(f,x[FALSE,,drop=FALSE]),numeric())
-    if(method=="landweber") expect_lte(f$solver$final_loss,f$solver$initial_loss)
+    if(method=="landweber") {
+      expect_lte(f$solver$final_loss,f$solver$initial_loss)
+      expect_lte(f$solver$final_step,f$solver$maximum_step)
+    }
     if(method=="pmmr") expect_lte(f$solver$penalized_loss,f$solver$initial_loss)
   }
 })
@@ -55,5 +58,35 @@ test_that("adjoints retain their unrestricted default parameterizations", {
     fit <- fit_adjoint(x,x,rep(1,100),rep(-1,100),method)
     expect_identical(fit$tuning$link,"identity")
     expect_true(all(predict(fit,x)<0))
+  }
+})
+
+test_that("linked Landweber uses a constant basis continuation outside training support", {
+  x <- matrix(c(rep(1, 5), rep(2, 25)), ncol = 1)
+  M <- rep(c(1, 0, 1), 10)
+  x[M == 0, ] <- NA_real_
+  f <- suppressWarnings(fit_bridge(rep(0:1, 15), x, M, "landweber",
+    list(link = "inverse_logit")))
+  newx <- matrix(c(-100, 1, 2, 100), ncol = 1)
+  prediction <- suppressWarnings(predict(f, newx))
+  expect_true(all(is.finite(prediction)))
+  expect_equal(prediction[1], prediction[2])
+  expect_equal(prediction[3], prediction[4])
+  expect_identical(f$target_spec$extrapolation, "constant")
+  identity <- suppressWarnings(fit_adjoint(rep(0:1, 15), x, M, rep(-1, 30), "landweber"))
+  expect_identical(identity$tuning$target_extrapolation, "polynomial")
+})
+
+test_that("linked Landweber remains finite on the failing nested numerical-dose split", {
+  x <- readRDS(test_path("fixtures", "linked-landweber-small-split.rds"))
+  for (fold in unique(x$fold_id)) {
+    train <- which(x$fold_id != fold); validation <- which(x$fold_id == fold & x$M == 1)
+    fit <- suppressWarnings(fit_bridge(x$B[train, , drop = FALSE], x$V[train, , drop = FALSE],
+      x$M[train], "landweber", list(link = "inverse_logit")))
+    prediction <- predict(fit, x$V[validation, , drop = FALSE])
+    expect_true(all(is.finite(prediction)))
+    expect_true(all(prediction >= 1))
+    expect_lt(max(prediction), 10)
+    expect_lte(fit$solver$final_step, fit$solver$maximum_step)
   }
 })
