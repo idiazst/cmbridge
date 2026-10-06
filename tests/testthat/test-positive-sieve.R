@@ -108,3 +108,13 @@ test_that("small nested CV link fits retain function accuracy near stationarity"
   expect_lte(max(fit$function_gradient, fit$coefficient_gradient), fit$tolerance)
   expect_true(all(fit$values >= 1))
 })
+
+test_that("a revived inverse-link coefficient is refined after its restart", {
+  case <- readRDS(test_path("fixtures", "sieve-cv-restart-refinement.rds"))
+  fit <- cmbridge:::.sieve_link_solve(case$S, case$b, case$constant, case$link, 1e-10, 10000L)
+  expect_true(fit$converged)
+  expect_true(all(is.finite(fit$parameters)))
+  expect_lte(max(fit$function_gradient, fit$coefficient_gradient), fit$tolerance)
+  expect_true(any(grepl("restart", fit$trace$method)))
+  expect_lt(tail(fit$trace$coefficient_gradient, 1), 1e-5)
+})

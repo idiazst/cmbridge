@@ -221,7 +221,7 @@
                      x.tol = tolerance))
     append_fit("nlminb", fit)
   }
-  for (refinement in seq_len(4L)) {
+  scaled_refine <- function() for (refinement in seq_len(4L)) {
     if (any(vapply(fits, valid, logical(1L)))) break
     best_index <- which.min(vapply(fits, function(fit) problem$fn(fit$par), numeric(1L)))
     start <- fits[[best_index]]$par
@@ -234,6 +234,7 @@
       control = list(maxit = max_iter, reltol = min(tolerance, 1e-14), parscale = parscale))
     append_fit(paste0("scaled BFGS ", refinement), fit)
   }
+  scaled_refine()
   for (restart in seq_len(8L)) {
     if (any(vapply(fits, valid, logical(1L)))) break
     best_index <- which.min(vapply(fits, function(fit) problem$fn(fit$par), numeric(1L)))
@@ -253,6 +254,10 @@
     fit <- stats::optim(candidate, problem$fn, problem$gr, method = "BFGS",
                         control = list(maxit = max_iter, reltol = tolerance))
     append_fit(paste0("BFGS restart ", restart), fit)
+    # A restart can leave the flat part of the link and substantially change
+    # coefficient derivatives. Refine again at its new location before
+    # deciding whether further function-scale descent is needed.
+    scaled_refine()
   }
   eligible <- which(vapply(fits, valid, logical(1L)))
   if (!length(eligible)) {
