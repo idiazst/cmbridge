@@ -297,6 +297,11 @@
       })
       count <- sum(vapply(plans, function(plan)
         length(if (type == "bridge") plan$validation else plan$observed), 0L))
+      paired_count <- sum(vapply(plans, function(plan) {
+        scored <- if (type == "bridge") plan$validation else plan$observed
+        frequencies <- table(.cell_keys(Z[scored, , drop = FALSE]))
+        as.integer(sum(frequencies[frequencies > 1L]))
+      }, 0L))
       evaluate <- function(requested) vapply(requested, function(scale) {
         loss <- 0
         for (plan in plans) {
@@ -325,6 +330,9 @@
                                   length(unique(ids[index])))
       out <- fit_at(index, loading, control)
       out$penalty_cv <- selected$penalty_cv
+      out$penalty_cv$scored_rows <- count
+      out$penalty_cv$paired_rows <- paired_count
+      out$penalty_cv$informative <- paired_count > 0L
       out$penalty_boundary <- selected$boundary_history
       out$penalty_status <- selected$status
       out$penalty_parameter <- if (candidate$method == "sieve_md") "lambda" else "penalty"

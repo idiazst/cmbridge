@@ -16,7 +16,6 @@ cell_moment_gram <- function(residual, instrument) {
   index <- match(keys, unique(keys))
   counts <- tabulate(index)
   eligible <- counts > 1L
-  if (!any(eligible)) stop("Cell U-statistic requires a cell with at least two validation observations.")
   sums <- rowsum(residual, index, reorder = FALSE)
   denominator <- as.double(n) * (counts - 1)
   # sum_{i != j} r_i r_j' = S S' - sum_i r_i r_i'.

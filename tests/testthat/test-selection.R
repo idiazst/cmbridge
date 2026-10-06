@@ -14,7 +14,10 @@ test_that("cell U-statistic matches explicit ordered pairs and retains treatment
   residual <- c(1, 1, -1, -1)
   expect_equal(as.numeric(cell_moment_gram(residual, cbind(H = 0, A = c(0, 0, 1, 1)))), 1)
   expect_lt(as.numeric(cell_moment_gram(residual, matrix(0, 4, 1))), 0)
-  expect_error(cell_moment_gram(1:3, matrix(1:3)), "at least two")
+  empty_pairs <- cell_moment_gram(cbind(1:3, c(4, 5, 6)), matrix(1:3))
+  expect_equal(as.vector(empty_pairs), rep(0, 4))
+  expect_equal(attr(empty_pairs, "cell_scoring")$paired_rows, 0)
+  expect_equal(attr(empty_pairs, "cell_scoring")$singleton_cells, 3)
 })
 
 test_that("removing self-products removes candidate-dependent noise in expectation", {

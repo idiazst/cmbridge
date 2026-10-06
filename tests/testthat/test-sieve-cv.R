@@ -71,3 +71,22 @@ test_that("ridge and L1 CV controls preserve their different penalty conventions
   expect_equal(ridge, list(target_basis = "cell", lambda = .01))
   expect_equal(l1, list(target_basis = "cell", penalty = .001))
 })
+
+test_that("uninformative singleton-cell CV is recorded rather than dropping conditioning variables", {
+  n <- 12L
+  B <- cbind(H = seq_len(n), A = rep(0:1, 6))
+  V <- matrix(rep(0:1, 6), ncol = 1)
+  M <- rep(c(1, 1, 0), 4)
+  V[M == 0, ] <- NA_real_
+  lib <- list(sieve = list(method = "sieve_md", control = list(
+    target_basis = "cell", instrument_basis = "cell", link = "inverse_logit",
+    penalty_scales = c(.001, .01, .1))))
+  fit <- fit_bridge_ensemble(B, V, M, lib, fold_id = rep(1:3, 4), kernel = "cell")
+  cv <- fit$candidates$sieve$penalty_cv
+  expect_false(any(cv$informative))
+  expect_true(all(cv$paired_rows == 0))
+  expect_true(all(cv$loss == 0))
+  expect_equal(fit$candidates$sieve$tuning$lambda, .01)
+  expect_equal(as.numeric(fit$raw_gram), 0)
+  expect_true(all(is.finite(fitted(fit)[M == 1])))
+})

@@ -231,7 +231,7 @@
     # the entire real line, and the objective and acceptance checks are intact.
     parscale <- 1 / pmax(exp(problem$sign * start), .001)
     fit <- stats::optim(start, problem$fn, problem$gr, method = "BFGS",
-      control = list(maxit = max_iter, reltol = min(tolerance, 1e-12), parscale = parscale))
+      control = list(maxit = max_iter, reltol = min(tolerance, 1e-14), parscale = parscale))
     append_fit(paste0("scaled BFGS ", refinement), fit)
   }
   for (restart in seq_len(8L)) {

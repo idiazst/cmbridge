@@ -183,3 +183,8 @@ nested numerical-dose split where polynomial spline continuation produced
 validation values around 1e189 after the exponential link. The new model
 continuation prevents that overflow without clipping fitted bridge values.
 Identity adjoint fits retain their previous spline continuation.
+
+CV records include scored and paired row counts and an `informative` flag.
+Singleton conditioning cells contribute zero, including a validation subset
+with no observed pair. When all scores tie, the documented interior tie rule
+is used; an uninformative split does not establish that its penalty is optimal.

@@ -99,3 +99,12 @@ test_that("link-step scaling is updated after a large unrestricted coefficient m
   reference[free] <- solve(case$S[free, free], case$b[free] - rowSums(case$S[free, limiting]))
   expect_equal(fit$values, reference, tolerance = 1e-4)
 })
+
+test_that("small nested CV link fits retain function accuracy near stationarity", {
+  case <- readRDS(test_path("fixtures", "sieve-cv-nested-precision.rds"))
+  fit <- cmbridge:::.sieve_link_solve(case$S, case$b, case$constant, case$link, 1e-10, 10000L)
+  expect_true(fit$converged)
+  expect_true(all(is.finite(fit$parameters)))
+  expect_lte(max(fit$function_gradient, fit$coefficient_gradient), fit$tolerance)
+  expect_true(all(fit$values >= 1))
+})
