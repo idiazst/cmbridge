@@ -221,6 +221,19 @@
                      x.tol = tolerance))
     append_fit("nlminb", fit)
   }
+  for (refinement in seq_len(4L)) {
+    if (any(vapply(fits, valid, logical(1L)))) break
+    best_index <- which.min(vapply(fits, function(fit) problem$fn(fit$par), numeric(1L)))
+    start <- fits[[best_index]]$par
+    # A nearly flat inverse link can stall despite function-scale descent.
+    # Rescale optimizer coordinates by their local link derivatives. This
+    # changes numerical step sizes only: every coefficient is still free on
+    # the entire real line, and the objective and acceptance checks are intact.
+    parscale <- 1 / pmax(exp(problem$sign * start), .001)
+    fit <- stats::optim(start, problem$fn, problem$gr, method = "BFGS",
+      control = list(maxit = max_iter, reltol = min(tolerance, 1e-12), parscale = parscale))
+    append_fit(paste0("scaled BFGS ", refinement), fit)
+  }
   for (restart in seq_len(8L)) {
     if (any(vapply(fits, valid, logical(1L)))) break
     best_index <- which.min(vapply(fits, function(fit) problem$fn(fit$par), numeric(1L)))

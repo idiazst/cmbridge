@@ -40,6 +40,18 @@ cell_moment_gram <- function(residual, instrument) {
        adjustment_norm = sqrt(sum((projected - G)^2)))
 }
 
+# Translate a CV grid value to the learner's penalty parameter. Sieve values
+# are absolute ridge lambdas; the existing L1 scales retain their n^-1/2 rule.
+.penalty_control <- function(control, method, scale, n_people) {
+  for (name in c("penalty_scales", "penalty_ids", "penalty_folds",
+                 "penalty_max_extensions", "penalty_extension_factor", "penalty_extension_points"))
+    control[[name]] <- NULL
+  if (method == "sieve_md") control$lambda <- scale else if (method == "saturated_l1")
+    control$penalty <- scale / sqrt(n_people) else
+      stop("Penalty cross-validation supports sieve_md and saturated_l1 candidates.")
+  control
+}
+
 #' Select a positive penalty on an extendable grid
 #'
 #' Boundary minima are recorded as failed attempts and the grid is extended.

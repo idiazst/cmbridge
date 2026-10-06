@@ -13,7 +13,10 @@
 }
 \description{Fits h in E[Y-D h(X) given Z]=0 using a common interface.}
 \details{For \code{sieve_md} and \code{landweber}, \code{target_basis} and
-\code{instrument_basis} may be \code{"bs"}, \code{"poly"}, or \code{"cell"}.
+\code{instrument_basis} may be \code{"bs"}, \code{"poly"}, \code{"quadratic"}, or \code{"cell"}.
+The \code{"quadratic"} basis includes an intercept, every main effect, every
+square, and every pairwise interaction. These terms are fixed independently
+of training-sample combinations, with no category fallback.
 The \code{"cell"} basis includes an intercept and indicators for joint input
 categories observed in training, representing all their interactions; unseen
 categories receive the intercept. When both sieve bases are \code{"cell"},

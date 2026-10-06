@@ -10,6 +10,12 @@ The initial learner library contains:
 2. `landweber`: Landweber iterative regularization of the same empirical conditional-moment operator;
 3. `pmmr`: scalable Gaussian-kernel proxy/maximum-moment restriction using low-rank target and critic features.
 
+Landweber also accepts `target_basis = "quadratic"`: an intercept, all main
+effects, squares, and every pairwise interaction of the supplied variables.
+Its terms are fixed independently of the observed combinations. With
+`link = "inverse_logit"`, these terms parameterize the linear predictor of
+the bridge; the optimization coefficients remain unrestricted.
+
 For finite discrete support, `saturated_l1` adds all joint-cell interactions and
 fits the empirical conditional moments with an L1 penalty. The original three
 learners remain the default ensemble library.
@@ -131,6 +137,16 @@ accepted; an unresolved boundary raises an error carrying the losses and attempt
 history. The default limit is 16 one-decade extensions, with four logarithmic
 points per extension. No zero penalty is introduced. `select_penalty_grid()` is
 shared with lmtp, and `cell_moment_gram()` supplies the common scorer.
+
+For a discrete `sieve_md` ensemble candidate, supply
+`control$penalty_scales = 10^seq(-10, 0, by = .25)` to select the ridge
+`lambda` on training-only CV splits. These are absolute lambda values.
+`penalty_ids` and the `penalty_folds(ids)` callback preserve shared person
+splits, including when tuning inside an ensemble training fold. The selected
+grid, extension attempts, person IDs, and CV labels are saved in each fit.
+Adjoint tuning reconstructs its loading within each penalty training sample.
+The same controls continue to support `saturated_l1`, whose scales are divided
+by the square root of the number of training people.
 
 Learners use an
 unpenalized constant function and penalize joint-cell deviations; the constant

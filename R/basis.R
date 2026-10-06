@@ -17,7 +17,7 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
   out
 }
 
-.fit_basis_spec <- function(x, type = c("bs", "poly", "cell"), degree = 3L, df = 6L) {
+.fit_basis_spec <- function(x, type = c("bs", "poly", "cell", "quadratic"), degree = 3L, df = 6L) {
   type <- match.arg(type)
   x <- .as_matrix(x)
   if (anyNA(x)) stop("basis fitting data cannot contain missing values.", call. = FALSE)
@@ -27,6 +27,7 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
   if (type == "poly") {
     return(list(type = type, degree = as.integer(degree), p = ncol(x)))
   }
+  if (type == "quadratic") return(list(type = type, degree = 2L, p = ncol(x)))
   specs <- vector("list", ncol(x))
   for (j in seq_len(ncol(x))) {
     if (length(unique(x[, j])) == 1L) {
@@ -68,6 +69,14 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
     return(out)
   }
   if (spec$type == "poly") return(poly_basis(x, degree = spec$degree, intercept = TRUE))
+  if (spec$type == "quadratic") {
+    # A fixed polynomial basis: intercept, every main effect, every square,
+    # and every pairwise interaction. No levels or terms are learned from x.
+    out <- poly_basis(x, degree = 2L, intercept = TRUE)
+    if (spec$p > 1L) for (j in seq_len(spec$p - 1L)) for (k in (j + 1L):spec$p)
+      out <- cbind(out, x[, j] * x[, k])
+    return(out)
+  }
   if (!nrow(x)) {
     # A bridge validation sample may have no measured outcomes. Its spline
     # prediction design is empty, but must retain the fitted column count.

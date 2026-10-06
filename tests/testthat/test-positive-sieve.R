@@ -72,3 +72,30 @@ test_that("loss evaluation remains stable near an inverse-expit boundary", {
   expect_equal(got$values,as.numeric(solve(S,b)),tolerance=1e-4)
   expect_lte(got$function_gradient,got$tolerance)
 })
+test_that("penalty CV flat-link coefficients are refined without relaxing function accuracy", {
+  case <- readRDS(test_path("fixtures", "sieve-cv-flat-link.rds"))
+  fit <- cmbridge:::.sieve_link_solve(case$S, case$b, case$constant, case$link, 1e-10, 10000L)
+  expect_true(fit$converged)
+  expect_true(all(is.finite(fit$parameters)))
+  expect_true(all(fit$values >= 1))
+  expect_lte(max(fit$function_gradient, fit$coefficient_gradient), fit$tolerance)
+  # Independently evaluate the stationary function values with coordinate 2
+  # at the limiting value; the production optimizer has no coefficient bounds.
+  free <- c(1, 3, 4)
+  reference <- rep(1, 4)
+  reference[free] <- solve(case$S[free, free], case$b[free] - case$S[free, 2])
+  expect_equal(fit$values, reference, tolerance = 1e-4)
+})
+
+test_that("link-step scaling is updated after a large unrestricted coefficient move", {
+  case <- readRDS(test_path("fixtures", "sieve-cv-refinement.rds"))
+  fit <- cmbridge:::.sieve_link_solve(case$S, case$b, case$constant, case$link, 1e-10, 10000L)
+  expect_true(fit$converged)
+  expect_true(all(is.finite(fit$parameters)))
+  expect_lte(max(fit$function_gradient, fit$coefficient_gradient), fit$tolerance)
+  free <- c(1, 3)
+  limiting <- c(2, 4)
+  reference <- rep(1, 4)
+  reference[free] <- solve(case$S[free, free], case$b[free] - rowSums(case$S[free, limiting]))
+  expect_equal(fit$values, reference, tolerance = 1e-4)
+})

@@ -256,9 +256,9 @@
           M[rows], response, candidate$method, control)
       }
       if (is.null(scales)) return(fit_at(index, loading, candidate$control))
-      if (candidate$method != "saturated_l1" || !length(scales) ||
+      if (!candidate$method %in% c("sieve_md", "saturated_l1") || !length(scales) ||
           any(!is.finite(scales)) || any(scales <= 0)) {
-        stop("Positive penalty_scales are supported for saturated_l1 candidates.")
+        stop("Positive penalty_scales are supported for sieve_md and saturated_l1 candidates.")
       }
       ids <- candidate$control$penalty_ids
       if (is.null(ids)) ids <- seq_len(n)
@@ -283,6 +283,8 @@
           any(labels < 1 | labels != as.integer(labels)))
         stop("penalty_folds must return one positive integer label per input row.")
       if (length(unique(labels)) < 2L) stop("Penalty cross-validation needs two person groups.")
+      if (any(labels != labels[match(values, values)]))
+        stop("A person cannot appear in both penalty training and validation groups.")
       # Construct the loading once per training-only split, then retain it
       # while extending the penalty grid. Conditioning cells always use all Z.
       plans <- lapply(sort(unique(labels)), function(label) {
@@ -298,9 +300,8 @@
       evaluate <- function(requested) vapply(requested, function(scale) {
         loss <- 0
         for (plan in plans) {
-          control <- candidate$control
-          control$penalty_scales <- control$penalty_ids <- control$penalty_folds <- NULL
-          control$penalty <- scale / sqrt(length(unique(ids[plan$train])))
+          control <- .penalty_control(candidate$control, candidate$method, scale,
+                                      length(unique(ids[plan$train])))
           fitted <- fit_at(plan$train, if (type == "adjoint") plan$response$train else NULL, control)
           predictions <- predict(fitted, X[plan$observed, , drop = FALSE])
           if (type == "bridge") {
@@ -320,13 +321,15 @@
         max_extensions = if (is.null(options$penalty_max_extensions)) 16L else options$penalty_max_extensions,
         extension_factor = if (is.null(options$penalty_extension_factor)) 10 else options$penalty_extension_factor,
         extension_points = if (is.null(options$penalty_extension_points)) 4L else options$penalty_extension_points)
-      control <- candidate$control
-      control$penalty_scales <- control$penalty_ids <- control$penalty_folds <- NULL
-      control$penalty <- selected$scale / sqrt(length(unique(ids[index])))
+      control <- .penalty_control(candidate$control, candidate$method, selected$scale,
+                                  length(unique(ids[index])))
       out <- fit_at(index, loading, control)
       out$penalty_cv <- selected$penalty_cv
       out$penalty_boundary <- selected$boundary_history
       out$penalty_status <- selected$status
+      out$penalty_parameter <- if (candidate$method == "sieve_md") "lambda" else "penalty"
+      out$penalty_ids <- ids[index]
+      out$penalty_fold_id <- labels
       out
     })
   }

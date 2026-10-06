@@ -37,7 +37,10 @@ before simplex optimization. The raw matrix, raw candidate losses, and the
 projection adjustment are retained. Penalty selection uses the raw scalar
 U-statistic, without truncating negative losses to zero.
 
-A saturated L1 candidate can supply \code{penalty_scales}. Penalty selection
+A sieve or saturated L1 candidate can supply \code{penalty_scales}. For
+\code{sieve_md}, these are absolute ridge \code{lambda} values. For
+\code{saturated_l1}, each scale is divided by the square root of the number
+of training people to obtain \code{penalty}. Penalty selection
 uses person-based training-only splits, and records boundary minima as failed
 attempts. It extends the grid by one decade with four intermediate logarithmic
 points on the indicated side until a minimum is interior. The controls
@@ -48,6 +51,13 @@ boundary raises \code{cmbridge_penalty_boundary_error} with the complete
 when an interior grid point also attains the minimum. Include
 \code{method="saturated_l1"} explicitly for discrete bridge problems; the
 original three-method default is retained.
+
+Each refitted candidate retains its selected \code{penalty_cv},
+\code{penalty_boundary}, \code{penalty_status}, \code{penalty_parameter},
+\code{penalty_ids}, and \code{penalty_fold_id}. The controls
+\code{penalty_ids} and \code{penalty_folds(ids)} let an outer estimator pass
+the same person splits used by its other learners. Penalties are chosen
+separately inside every ensemble training fold and again for the final refit.
 
 }
 \value{A \code{cmbridge_ensemble} inheriting from \code{cmbridge_fit}. Fields include \code{raw_gram}, \code{psd_projection}, \code{candidate_raw_cv_loss}, \code{raw_cv_loss}, \code{fold_penalty_cv}, \code{fold_penalty_boundary}, \code{weights}, refitted \code{candidates}, \code{library}, \code{fold_id}, \code{gram}, \code{fold_gram}, \code{fold_n_scored}, \code{cv_predictions}, \code{cv_residuals}, \code{candidate_cv_loss}, \code{cv_loss}, and solver diagnostics. Prediction and \code{moment_loss} are supported. Cross-validated predictions on unobserved V are NA. The stored training moment loss uses a kernel learned from the full supplied training sample.}
