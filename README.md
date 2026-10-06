@@ -188,3 +188,28 @@ CV records include scored and paired row counts and an `informative` flag.
 Singleton conditioning cells contribute zero, including a validation subset
 with no observed pair. When all scores tie, the documented interior tie rule
 is used; an uninformative split does not establish that its penalty is optimal.
+
+The ensemble now removes self-products for Gaussian and linear kernels as well
+as cell kernels, and penalty CV uses the same kernel as ensemble selection.
+Raw U-statistics can be negative; PSD projection is applied only before the
+convex weight optimization.
+
+Linked sieve fits also support fixed `poly`/`quadratic` bases and `cell_linear`
+(fixed main effects plus joint-category deviations). Their ridge acts on scaled
+link coefficients, leaves the intercept unpenalized, and uses
+`cell_penalty_multiplier = 100` for the joint deviations in `cell_linear`.
+Every predictor is retained. Pure cell fits can request `penalty_on = "link"`;
+the default pure-cell function penalty remains available. An unrestricted
+damped Gauss-Newton solver and BFGS refinement record gradient diagnostics.
+
+`landweber` supports `precondition = TRUE`, an invertible change of coordinates
+which retains the entire specified basis class. Cell critic redundancy is
+removed by an exact ridge-weight equivalence. Common cell directions are solved
+separately from large ridge penalties to retain numerical precision.
+
+Failed penalty trials (including nonfinite scores) are retained in CV records
+and never selected. A candidate that cannot pass tuning/fitting/validation is
+recorded in `candidate_failures` and excluded across all folds and the final
+refit, with weight zero. All other candidates retain the same validation rows.
+An ensemble with no valid candidates raises a structured error. Boundary minima
+still extend the grid or fail; this does not accept a boundary minimum.

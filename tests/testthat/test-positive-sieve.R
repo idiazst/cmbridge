@@ -54,8 +54,9 @@ test_that("finite unrestricted coefficients approach beta=1 and adjoints stay un
   positive <- fit_cm(rep(-1, 60), target = x, instrument = x, method = "sieve_md", control = controls)
   expect_true(all(predict(positive, x) > 0))
   expect_equal(positive$residual, rep(-1, 60) - fitted(positive))
-  expect_error(fit_cm(rep(1, 60), target = x, instrument = x, method = "sieve_md",
-    control = list(link = "inverse_logit")), "require.*cell")
+  generic <- fit_cm(rep(2, 60), target = x, instrument = x, method = "sieve_md",
+    control = list(link = "inverse_logit", target_basis = "poly", instrument_basis = "poly", target_degree = 1, instrument_degree = 1))
+  expect_equal(predict(generic, x), rep(2, 60), tolerance = 1e-4)
 })
 
 test_that("loss evaluation remains stable near an inverse-expit boundary", {

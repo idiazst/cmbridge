@@ -5,7 +5,8 @@
     target_df = 6L, instrument_df = 9L,
     max_iter = 2000L, n_iter = NULL,
     step_fraction = 0.95, weight_ridge = 1e-8,
-    init_intercept = TRUE, tol = 1e-10, link = "identity", target_extrapolation = NULL
+    init_intercept = TRUE, tol = 1e-10, link = "identity", target_extrapolation = NULL,
+    precondition = FALSE
   ), control)
 
   ctrl$link <- match.arg(ctrl$link, c("identity", "log", "inverse_logit"))
@@ -24,16 +25,18 @@
                            ctrl$instrument_degree, ctrl$instrument_df)
   Hactive <- .eval_basis_spec(x[active, , drop = FALSE], xspec)
   H <- matrix(0, nrow(x), ncol(Hactive)); H[active, ] <- Hactive
-  Q <- .eval_basis_spec(z, zspec)
+  critic <- .moment_basis_spec(z, zspec, ctrl$weight_ridge)
+  Q <- critic$Q
   if (ctrl$link != "identity") {
-    W <- .safe_inverse(crossprod(Q) / length(y) + ctrl$weight_ridge * diag(ncol(Q)), ridge = ctrl$weight_ridge)
-    return(.fit_linked_landweber(y, d, x, Hactive, Q, W, xspec, zspec, ctrl))
+    out <- .fit_linked_landweber(y, d, x, Hactive, Q, critic$W, xspec, zspec, ctrl)
+    out$instrument_features <- critic$features
+    return(out)
   }
   n <- length(y)
 
   A <- crossprod(Q, d * H) / n
   cvec <- crossprod(Q, y) / n
-  W <- .safe_inverse(crossprod(Q) / n + ctrl$weight_ridge * diag(ncol(Q)), ridge = ctrl$weight_ridge)
+  W <- critic$W
   S <- crossprod(A, W %*% A)
   b <- as.numeric(crossprod(A, W %*% cvec))
   eigmax <- max(eigen((S + t(S)) / 2, symmetric = TRUE, only.values = TRUE)$values)
@@ -73,7 +76,6 @@
       as.numeric(.eval_basis_spec(.as_matrix(newx), spec) %*% coefficient),
       list(spec = xspec, coefficient = theta)),
     moment_weight = W,
-    instrument_features = .prediction_closure(function(newz) .eval_basis_spec(newz, spec),
-                                              list(spec = zspec))
+    instrument_features = critic$features
   )
 }

@@ -109,16 +109,19 @@
     stop("scoring requires finite residuals on a nonempty validation sample.", call. = FALSE)
   }
   if (spec$kernel == "cell") return(cell_moment_gram(residual, z))
+  if (n < 2L) return(matrix(0, ncol(residual), ncol(residual)))
   starts <- seq.int(1L, n, by = spec$control$block_size)
   if (spec$kernel == "linear" || !is.null(spec$nystrom)) {
     moment <- NULL
+    diagonal <- matrix(0, ncol(residual), ncol(residual))
     for (start in starts) {
       ii <- seq.int(start, min(n, start + spec$control$block_size - 1L))
-      term <- crossprod(.ensemble_features(z[ii, , drop = FALSE], spec),
-                        residual[ii, , drop = FALSE]) / n
+      features <- .ensemble_features(z[ii, , drop = FALSE], spec)
+      term <- crossprod(features, residual[ii, , drop = FALSE])
+      diagonal <- diagonal + crossprod(residual[ii, , drop = FALSE] * sqrt(rowSums(features^2)))
       moment <- if (is.null(moment)) term else moment + term
     }
-    G <- crossprod(moment)
+    G <- (crossprod(moment) - diagonal) / (n * (n - 1))
   } else {
     # Exact equation (22), evaluated in blocks to avoid storing an n-by-n K.
     zs <- .scale_apply(z, spec$scale)
@@ -126,8 +129,9 @@
     for (start in starts) {
       ii <- seq.int(start, min(n, start + spec$control$block_size - 1L))
       K <- rbf_kernel(zs[ii, , drop = FALSE], zs, spec$bandwidth)
-      G <- G + crossprod(residual[ii, , drop = FALSE], K %*% residual) / n^2
+      G <- G + crossprod(residual[ii, , drop = FALSE], K %*% residual)
     }
+    G <- (G - crossprod(residual)) / (n * (n - 1))
   }
   (G + t(G)) / 2
 }
@@ -243,11 +247,21 @@
   Z <- if (type == "bridge") B else V
   X <- if (type == "bridge") V else B
   cv_predictions <- cv_residuals <- matrix(NA_real_, n, p, dimnames = list(NULL, names(library)))
-  grams <- vector("list", k)
+  grams <- scoring_specs <- scoring_rows <- vector("list", k)
   counts <- integer(k)
   fold_penalty_cv <- fold_penalty_boundary <- vector("list", k)
+  available <- stats::setNames(rep(TRUE, p), names(library))
+  failures <- list(); fit_scope <- ""
+  record_failure <- function(name, message, index, condition = NULL) {
+    available[name] <<- FALSE
+    failures[[length(failures) + 1L]] <<- list(candidate = name, scope = fit_scope,
+      training_n = length(index), message = message, condition = condition)
+  }
   fit_candidates <- function(index, loading = NULL) {
-    lapply(library, function(candidate) {
+    out <- lapply(names(library), function(name) {
+      if (!available[name]) return(NULL)
+      candidate <- library[[name]]
+      tryCatch({
       scales <- candidate$control$penalty_scales
       fit_at <- function(rows, response, control) {
         if (type == "bridge") fit_bridge(B[rows, , drop = FALSE], V[rows, , drop = FALSE],
@@ -292,7 +306,9 @@
         observed_validation <- validation[M[validation] == 1]
         if (!any(M[train] == 1) || (type == "adjoint" && !length(observed_validation)))
           stop("Each penalty training and validation group needs measured observations.")
+        training_z <- if (type == "bridge") train else train[M[train] == 1]
         list(train = train, validation = validation, observed = observed_validation,
+          scoring = .ensemble_kernel(Z[training_z, , drop = FALSE], kernel, kernel_control, seed),
           response = if (type == "adjoint") .ensemble_loading(phi, train, validation, n) else NULL)
       })
       count <- sum(vapply(plans, function(plan)
@@ -317,7 +333,7 @@
             residual <- predictions - plan$response$validation[M[plan$validation] == 1]
             scored <- plan$observed
           }
-          loss <- loss + length(scored) * cell_moment_gram(residual, Z[scored, , drop = FALSE])[1, 1]
+          loss <- loss + length(scored) * .ensemble_gram(residual, Z[scored, , drop = FALSE], plan$scoring)[1, 1]
         }
         loss / count
       }, 0)
@@ -339,7 +355,13 @@
       out$penalty_ids <- ids[index]
       out$penalty_fold_id <- labels
       out
+      }, error = function(e) {
+        record_failure(name, conditionMessage(e), index, e)
+        NULL
+      })
     })
+    names(out) <- names(library)
+    out
   }
   for (fold in seq_len(k)) {
     train <- which(folds != fold)
@@ -350,16 +372,18 @@
       stop("each fold must have complete cases in both training and validation samples.", call. = FALSE)
     }
     loading <- if (type == "adjoint") .ensemble_loading(phi, train, validation, n) else NULL
+    fit_scope <- paste("validation fold", fold)
     fits <- fit_candidates(train, if (type == "adjoint") loading$train else NULL)
     fold_penalty_cv[[fold]] <- lapply(fits, `[[`, "penalty_cv")
     fold_penalty_boundary[[fold]] <- lapply(fits, `[[`, "penalty_boundary")
-    predictions <- vapply(fits, function(fit) predict(fit, X[observed_validation, , drop = FALSE]),
-                          numeric(length(observed_validation)))
-    predictions <- matrix(predictions, nrow = length(observed_validation), ncol = p)
-    if (any(!is.finite(predictions))) {
-      bad <- names(library)[colSums(!is.finite(predictions)) > 0]
-      stop("candidate produced nonfinite validation predictions: ", paste(bad, collapse = ", "),
-           " (fold ", fold, ", training n = ", length(train), ").", call. = FALSE)
+    predictions <- matrix(NA_real_, length(observed_validation), p,
+      dimnames = list(NULL, names(library)))
+    for (name in names(library)[available]) {
+      value <- tryCatch(predict(fits[[name]], X[observed_validation, , drop = FALSE]), error = identity)
+      if (inherits(value, "error") || any(!is.finite(value))) {
+        record_failure(name, if (inherits(value, "error")) conditionMessage(value) else
+          "Nonfinite validation predictions.", train, if (inherits(value, "error")) value else NULL)
+      } else predictions[, name] <- value
     }
     cv_predictions[observed_validation, ] <- predictions
     if (type == "bridge") {
@@ -372,26 +396,50 @@
       residual <- predictions - phi_validation
       scored <- observed_validation
     }
+    colnames(residual) <- names(library)
     cv_residuals[scored, ] <- residual
     kernel_train <- if (type == "bridge") train else observed_train
     spec <- .ensemble_kernel(Z[kernel_train, , drop = FALSE], kernel, kernel_control, seed + fold)
-    grams[[fold]] <- .ensemble_gram(residual, Z[scored, , drop = FALSE], spec)
+    scoring_specs[[fold]] <- spec; scoring_rows[[fold]] <- scored
+    # Reject a candidate whose quadratic score overflows, retaining all other
+    # candidates on these same validation rows and person assignments.
+    for (name in names(library)[available]) {
+      score <- tryCatch(.ensemble_gram(residual[, name, drop = FALSE],
+        Z[scored, , drop = FALSE], spec), error = identity)
+      if (inherits(score, "error") || any(!is.finite(score))) record_failure(name,
+        if (inherits(score, "error")) conditionMessage(score) else "Nonfinite validation moment score.",
+        train, if (inherits(score, "error")) score else NULL)
+    }
     counts[fold] <- length(scored)
   }
+  fit_scope <- "final training refit"
+  final_loading <- if (type == "adjoint") .ensemble_loading(phi, seq_len(n), integer(0), n)$train else NULL
+  final_fits <- fit_candidates(seq_len(n), final_loading)
+  active <- names(library)[available]
+  if (!length(active)) stop(structure(list(message = "Every conditional-moment ensemble candidate failed.",
+    call = NULL, candidate_failures = failures), class = c("cmbridge_ensemble_candidate_error", "error", "condition")))
+  final_fits <- final_fits[active]
+  for (fold in seq_len(k)) {
+    scored <- scoring_rows[[fold]]
+    grams[[fold]] <- .ensemble_gram(cv_residuals[scored, active, drop = FALSE],
+      Z[scored, , drop = FALSE], scoring_specs[[fold]])
+  }
   G <- Reduce(`+`, Map(function(g, count) g * count / sum(counts), grams, counts))
-  dimnames(G) <- list(names(library), names(library))
+  dimnames(G) <- list(active, active)
   raw_gram <- G
   projection <- .project_gram_psd(raw_gram)
   G <- projection$gram
   solution <- .simplex_qp(G, solver_control)
-  weights <- stats::setNames(solution$weights, names(library))
-  final_loading <- if (type == "adjoint") .ensemble_loading(phi, seq_len(n), integer(0), n)$train else NULL
-  final_fits <- fit_candidates(seq_len(n), final_loading)
+  active_weights <- stats::setNames(solution$weights, active)
+  weights <- stats::setNames(rep(0, p), names(library)); weights[active] <- active_weights
+  raw_losses <- projected_losses <- stats::setNames(rep(Inf, p), names(library))
+  raw_losses[active] <- diag(raw_gram); projected_losses[active] <- diag(G)
+  used <- active[active_weights > 0]
   predict_fun <- .prediction_closure(function(newdata) {
       newdata <- .as_matrix(newdata)
       predictions <- vapply(models, function(fit) predict(fit, newdata), numeric(nrow(newdata)))
       as.numeric(matrix(predictions, nrow = nrow(newdata), ncol = columns) %*% coefficient)
-    }, list(models = final_fits, coefficient = weights, columns = p))
+    }, list(models = final_fits[used], coefficient = weights[used], columns = length(used)))
   fitted <- rep(NA_real_, n)
   fitted[complete] <- predict_fun(X[complete, , drop = FALSE])
   training_index <- if (type == "bridge") seq_len(n) else complete
@@ -402,15 +450,16 @@
   out <- list(
     method = "ensemble", type = type, n = n, n_scored = sum(counts),
     library = library, candidates = final_fits, weights = weights,
+    active_candidates = active, candidate_failures = failures,
     fold_id = folds, fold_gram = grams, fold_n_scored = counts, gram = G,
     raw_gram = raw_gram, psd_projection = projection[c("eigenvalues",
       "removed_negative_eigenvalues", "adjustment_norm")],
     fold_penalty_cv = fold_penalty_cv, fold_penalty_boundary = fold_penalty_boundary,
-    candidate_raw_cv_loss = stats::setNames(diag(raw_gram), names(library)),
-    raw_cv_loss = as.numeric(crossprod(weights, raw_gram %*% weights)),
+    candidate_raw_cv_loss = raw_losses,
+    raw_cv_loss = as.numeric(crossprod(active_weights, raw_gram %*% active_weights)),
     cv_predictions = cv_predictions, cv_residuals = cv_residuals,
-    candidate_cv_loss = stats::setNames(diag(G), names(library)),
-    cv_loss = as.numeric(crossprod(weights, G %*% weights)),
+    candidate_cv_loss = projected_losses,
+    cv_loss = as.numeric(crossprod(active_weights, G %*% active_weights)),
     solver = solution[c("kkt_gap", "iterations")], scoring_kernel = scoring_kernel,
     fitted = fitted, moment_loss = training_loss, predict_fun = predict_fun,
     target_dim = ncol(X), instrument_dim = ncol(Z),

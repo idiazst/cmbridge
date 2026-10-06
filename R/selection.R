@@ -36,7 +36,7 @@ cell_moment_gram <- function(residual, instrument) {
   dimnames(projected) <- dimnames(G)
   list(gram = projected, eigenvalues = e$values,
        removed_negative_eigenvalues = sum(e$values < 0),
-       adjustment_norm = sqrt(sum((projected - G)^2)))
+       adjustment_norm = norm(projected - G, "F"))
 }
 
 # Translate a CV grid value to the learner's penalty parameter. Sieve values
@@ -72,20 +72,30 @@ select_penalty_grid <- function(scales, evaluate, max_extensions = 16L,
   extension_points <- .ensemble_integer(extension_points, "extension_points")
   if (length(extension_factor) != 1L || !is.finite(extension_factor) || extension_factor <= 1)
     stop("extension_factor must exceed one.")
-  grid <- sort(unique(scales)); losses <- numeric(); rounds <- integer()
+  grid <- sort(unique(scales)); losses <- numeric(); rounds <- integer(); failures <- character()
   events <- list(); pending <- grid
   for (attempt in 0:max_extensions) {
-    current <- evaluate(pending)
-    if (length(current) != length(pending) || any(!is.finite(current)))
-      stop("Penalty selection requires a finite loss for every scale.")
+    # A failed or numerically overflowing penalty trial is inadmissible; it
+    # must not invalidate other, stable penalties on the same training splits.
+    trials <- lapply(pending, function(scale) tryCatch({
+      loss <- evaluate(scale)
+      if (length(loss) != 1L || !is.finite(loss)) stop("Nonfinite penalty validation score.")
+      list(loss = as.numeric(loss), failure = "")
+    }, error = function(e) list(loss = Inf, failure = conditionMessage(e))))
+    current <- vapply(trials, `[[`, 0, "loss")
+    failures <- c(failures, vapply(trials, `[[`, "", "failure"))
     losses <- c(losses, current); rounds <- c(rounds, rep(attempt, length(pending)))
     evaluated <- if (attempt == 0L) pending else c(evaluated, pending)
     order <- order(evaluated); evaluated <- evaluated[order]
-    losses <- losses[order]; rounds <- rounds[order]
+    losses <- losses[order]; rounds <- rounds[order]; failures <- failures[order]
+    cv <- data.frame(scale = evaluated, loss = losses, grid_round = rounds,
+                     selected = FALSE, failed = !is.finite(losses), failure = failures)
+    if (!any(is.finite(losses))) stop(structure(list(
+      message = paste("Every penalty trial failed:", paste(unique(failures), collapse = " | ")),
+      call = NULL, penalty_cv = cv, boundary_history = if (length(events)) do.call(rbind, events) else data.frame()),
+      class = c("cmbridge_penalty_fit_error", "error", "condition")))
     minima <- which(losses == min(losses))
     interior <- minima[minima > 1L & minima < length(evaluated)]
-    cv <- data.frame(scale = evaluated, loss = losses, grid_round = rounds,
-                     selected = FALSE)
     if (length(interior)) {
       chosen <- interior[1L]; cv$selected[chosen] <- TRUE
       return(list(scale = evaluated[chosen], penalty_cv = cv,

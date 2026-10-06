@@ -39,14 +39,111 @@
        gr = function(theta) evaluate(theta)$gradient)
 }
 
+# Ridge sieve on a fixed basis with an unpenalized intercept. Scaling every
+# nonconstant column is invertible; no predictors or interactions are removed.
+.fit_linked_sieve <- function(y, d, x, Hactive, Q, W, xspec, zspec, ctrl) {
+  scales <- sqrt(colMeans(Hactive^2)); scales[!is.finite(scales) | scales < 1e-8] <- 1
+  scales[1L] <- 1
+  penalty_weights <- rep(1, ncol(Hactive)); penalty_weights[1L] <- 0
+  if (xspec$type == "cell_linear") {
+    categories <- seq.int(xspec$p + 2L, ncol(Hactive))
+    scales[categories] <- 1
+    penalty_weights[categories] <- ctrl$cell_penalty_multiplier
+  }
+  design <- .linked_moment_design(y, d, x, sweep(Hactive, 2L, scales, "/"), Q, W)
+  H <- design$H; K <- design$K; cvec <- design$cvec
+  penalized <- penalty_weights
+  evaluate <- function(theta) {
+    eta <- as.numeric(H %*% theta)
+    value <- .cm_link(eta, ctrl$link)
+    if (any(!is.finite(value))) return(list(loss = Inf, gradient = rep(NA_real_, length(theta))))
+    moment <- cvec - as.numeric(K %*% value)
+    weighted <- as.numeric(W %*% moment)
+    derivative <- .cm_link_derivative(eta, ctrl$link)
+    list(loss = as.numeric(crossprod(moment, weighted)) + ctrl$lambda * sum(penalized * theta^2),
+      gradient = -2 * as.numeric(crossprod(H, derivative * as.numeric(crossprod(K, weighted)))) +
+        2 * ctrl$lambda * theta * penalized,
+      values = value, moment = moment, derivative = derivative)
+  }
+  theta <- numeric(ncol(H))
+  gap <- max(.1, mean(y) / mean(d) - if (ctrl$link == "inverse_logit") 1 else 0)
+  theta[1L] <- if (ctrl$link == "inverse_logit") -log(gap) else log(gap)
+  initial <- current <- evaluate(theta)
+  threshold <- 10 * sqrt(ctrl$solver_tolerance) * max(1, sqrt(abs(initial$loss)))
+  # Damped Gauss-Newton updates are unrestricted. The intercept is eliminated
+  # by a Schur complement, retaining precision even at very large penalties.
+  used <- 0L
+  for (iter in seq_len(min(ctrl$solver_max_iter, 200L))) {
+    if (max(abs(current$gradient)) <= threshold / 10) break
+    J <- K %*% (current$derivative * H)
+    curvature <- crossprod(J, W %*% J)
+    curvature <- (curvature + t(curvature)) / 2
+    curvature <- curvature + diag(ctrl$lambda * penalized + 1e-12, ncol(H))
+    g <- current$gradient / 2
+    if (ncol(H) == 1L) direction <- g / curvature[1L, 1L] else {
+      block <- curvature[-1L, -1L, drop = FALSE]
+      solved <- .safe_solve(block, cbind(g[-1L], curvature[-1L, 1L]))
+      pivot <- curvature[1L, 1L] - sum(curvature[1L, -1L] * solved[, 2L])
+      common <- (g[1L] - sum(curvature[1L, -1L] * solved[, 1L])) / max(pivot, 1e-12)
+      direction <- c(common, solved[, 1L] - solved[, 2L] * common)
+    }
+    descent <- sum(g * direction)
+    if (!is.finite(descent) || descent <= 0) direction <- g / pmax(diag(curvature), 1e-12)
+    step <- 1
+    for (attempt in 0:60) {
+      proposal <- theta - step * direction
+      candidate <- evaluate(proposal)
+      if (is.finite(candidate$loss) && candidate$loss <= current$loss +
+          8 * .Machine$double.eps * max(1, abs(current$loss))) break
+      step <- step / 2
+    }
+    if (!is.finite(candidate$loss)) break
+    theta <- proposal; current <- candidate; used <- iter
+  }
+  if (max(abs(current$gradient)) > threshold) {
+    fn <- function(par) evaluate(par)$loss
+    gr <- function(par) evaluate(par)$gradient
+    parscale <- rep(1 / sqrt(max(ctrl$lambda, 1e-6)), length(theta)); parscale[1L] <- 1
+    fit <- stats::optim(theta, fn, gr, method = "BFGS", control = list(
+      maxit = ctrl$solver_max_iter, reltol = min(ctrl$solver_tolerance, 1e-14), parscale = parscale))
+    if (fn(fit$par) <= current$loss) {theta <- fit$par; current <- evaluate(theta)}
+  }
+  if (!is.finite(current$loss) || max(abs(current$gradient)) > threshold)
+    stop("Linked quadratic sieve did not pass its coefficient-gradient check.", call. = FALSE)
+  coef <- theta / scales
+  fitted <- rep(NA_real_, length(y)); fitted[design$active] <- current$values[design$index]
+  list(coefficients = coef, link_coefficients = coef, target_spec = xspec, instrument_spec = zspec,
+    target_design_cols = ncol(H), fitted = fitted, residual = y - d * ifelse(is.na(fitted), 0, fitted),
+    moment_loss = as.numeric(crossprod(current$moment, W %*% current$moment)), tuning = ctrl,
+    solver = list(converged = TRUE, coefficient_gradient = max(abs(current$gradient)),
+      tolerance = threshold, iterations = used, initial_loss = initial$loss, final_loss = current$loss,
+      method = "unrestricted damped Gauss-Newton", regularization = "ridge on scaled link coefficients"),
+    predict_fun = .prediction_closure(function(newx) .cm_link(as.numeric(
+      .eval_basis_spec(.as_matrix(newx), spec) %*% coefficient), link),
+      list(spec = xspec, coefficient = coef, link = ctrl$link)),
+    moment_weight = W,
+    instrument_features = .prediction_closure(function(newz) .eval_basis_spec(newz, spec), list(spec = zspec)))
+}
+
 .fit_linked_landweber <- function(y, d, x, Hactive, Q, W, xspec, zspec, ctrl) {
   design <- .linked_moment_design(y, d, x, Hactive, Q, W)
+  # An invertible change of coefficient coordinates preserves the entire basis
+  # class while improving the conditioning of nonlinear Landweber iteration.
+  transform <- diag(ncol(design$H))
+  if (isTRUE(ctrl$precondition)) {
+    covariance <- crossprod(Hactive) / nrow(Hactive)
+    decomposition <- eigen((covariance + t(covariance)) / 2, symmetric = TRUE)
+    floor <- max(decomposition$values) * 1e-3
+    transform <- decomposition$vectors %*% diag(1 / sqrt(pmax(decomposition$values, floor)), ncol(Hactive)) %*% t(decomposition$vectors)
+    design$H <- design$H %*% transform
+  }
   problem <- .linked_moment_problem(design, ctrl$link)
   theta <- numeric(ncol(design$H))
   if (isTRUE(ctrl$init_intercept) && abs(mean(d)) > 1e-10) {
     value <- mean(y) / mean(d)
     gap <- max(.1, value - if (ctrl$link == "inverse_logit") 1 else 0)
-    theta[1L] <- if (ctrl$link == "inverse_logit") -log(gap) else log(gap)
+    initial_coef <- numeric(ncol(design$H)); initial_coef[1L] <- if (ctrl$link == "inverse_logit") -log(gap) else log(gap)
+    theta <- as.numeric(solve(transform, initial_coef))
   }
   n_iter <- if (is.null(ctrl$n_iter)) as.integer(ctrl$max_iter) else as.integer(ctrl$n_iter)
   if (n_iter < 1L) stop("n_iter must be positive.", call. = FALSE)
@@ -87,7 +184,8 @@
   pred_train[design$active] <- current$values[design$index]
   residual <- y - d * ifelse(is.na(pred_train), 0, pred_train)
   moment <- as.numeric(crossprod(Q, residual) / length(y))
-  list(coefficients = theta, link_coefficients = theta, target_spec = xspec, instrument_spec = zspec,
+  coefficient <- as.numeric(transform %*% theta)
+  list(coefficients = coefficient, link_coefficients = coefficient, target_spec = xspec, instrument_spec = zspec,
     fitted = pred_train, residual = residual, moment_loss = as.numeric(crossprod(moment, W %*% moment)),
     tuning = c(ctrl, list(step = step, maximum_step = maximum_step,
       iterations_used = used, final_delta = last_delta)),
@@ -99,7 +197,7 @@
     predict_fun = .prediction_closure(function(newx) {
       eta <- as.numeric(.eval_basis_spec(.as_matrix(newx), spec) %*% coefficient)
       .cm_link(eta, link)
-    }, list(spec = xspec, coefficient = theta, link = ctrl$link)),
+    }, list(spec = xspec, coefficient = coefficient, link = ctrl$link)),
     moment_weight = W,
     instrument_features = .prediction_closure(function(newz) .eval_basis_spec(newz, spec), list(spec = zspec)))
 }

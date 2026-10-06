@@ -13,7 +13,7 @@
 }
 \description{Fits h in E[Y-D h(X) given Z]=0 using a common interface.}
 \details{For \code{sieve_md} and \code{landweber}, \code{target_basis} and
-\code{instrument_basis} may be \code{"bs"}, \code{"poly"}, \code{"quadratic"}, or \code{"cell"}.
+\code{instrument_basis} may be \code{"bs"}, \code{"poly"}, \code{"quadratic"}, \code{"cell"}, or \code{"cell_linear"}.
 The \code{"quadratic"} basis includes an intercept, every main effect, every
 square, and every pairwise interaction. These terms are fixed independently
 of training-sample combinations, with no category fallback.
@@ -38,10 +38,18 @@ Controls are \code{solver_tolerance} (1e-10) and \code{solver_max_iter} (10000).
 The optimized unrestricted coefficients are stored in \code{link_coefficients}
 and \code{solver$parameters}. The \code{coefficients} field retains the
 function-scale common value and cell deviations for existing diagnostics.
-The positive sieve links require both joint-category bases.
+Positive sieve links also support the other basis choices, using ridge on scaled
+link coefficients and an unpenalized intercept. The \code{"cell_linear"} basis
+has all fixed main effects followed by joint-category deviations, which receive
+\code{cell_penalty_multiplier} times the ridge (default 100). Unseen categories
+retain the main-effect prediction. Pure cell fits may request
+\code{penalty_on = "link"}; their default remains the function-value penalty.
+Large function-value penalties retain the common direction by a separate solve.
 For \code{landweber}, the same links may be used with any supported basis;
 unrestricted nonlinear gradient updates with a fixed initial step and backtracking minimize the
 conditional-moment objective, regularized by iteration stopping.
+\code{precondition = TRUE} makes an invertible change of coordinates using the
+training design covariance; this preserves every term in the specified class.
 For linked Landweber splines, \code{target_extrapolation} defaults to
 \code{"constant"}: the basis continues at its boundary outside the training
 range. This is part of the model, not clipping of fitted function values.

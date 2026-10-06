@@ -19,7 +19,13 @@ fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
 \item{solver_control}{List with \code{tol} (1e-8) and \code{max_iter} (50000) for simplex quadratic optimization. The tolerance applies after scaling the Gram matrix by its largest absolute entry.}
 }
 \description{Combines candidates to solve \eqn{E[M\beta(V)-1\mid B]=0}, using the common RKHS maximum-moment validation criterion of Section 5.3.2 of the methodology paper.}
-\details{
+\details{Every kernel score excludes self-products: cell, Gaussian, and linear.
+Penalty CV uses the same kernel and training-only kernel specification as
+ensemble selection. Failed penalty trials are recorded and never selected.
+Candidates which fail tuning, fitting, or validation are excluded across all
+folds and given weight zero; the returned object retains their failure details.
+An ensemble with no valid candidates raises an error.
+
 For each inner fold, fit candidates on the other folds, form held-out residuals, and compute \eqn{G_f=R_f^T K_f R_f/n_f^2}. When \code{M=0}, the residual is -1 and V is not evaluated. The common Gram matrix is the average of fold-specific matrices weighted by their scored sample sizes. Weights minimize \eqn{\alpha^T G\alpha} over nonnegative weights summing to one. Candidates are refit on the entire supplied sample before prediction.
 
 Nystr\"om scoring uses a common low-rank approximation of the Gaussian kernel, independently of the kernels or bases used to fit the candidate learners. Exact scoring evaluates the full Gaussian V-statistic. The linear kernel is a finite-feature conditional-moment diagnostic, not a generally identifying kernel.
@@ -29,8 +35,8 @@ To preserve outer cross-fitting, call this function with only the outer training
 Cell scoring uses distinct pairs within each joint conditioning cell. For a
 cell containing \eqn{m} observations in a validation sample of size \eqn{n},
 its contribution is the sum of ordered residual cross-products with unequal
-indices, divided by \eqn{n(m-1)}. Singleton cells contribute zero; if every
-cell is a singleton, scoring fails. All conditioning columns are retained.
+indices, divided by \eqn{n(m-1)}. Singleton cells contribute zero, including samples where every
+cell is a singleton. All conditioning columns are retained.
 Raw U-statistic matrices can be indefinite. The averaged Gram is projected
 onto the positive semidefinite cone by replacing negative eigenvalues by zero
 before simplex optimization. The raw matrix, raw candidate losses, and the

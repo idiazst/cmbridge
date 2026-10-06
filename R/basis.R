@@ -17,11 +17,11 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
   out
 }
 
-.fit_basis_spec <- function(x, type = c("bs", "poly", "cell", "quadratic"), degree = 3L, df = 6L) {
+.fit_basis_spec <- function(x, type = c("bs", "poly", "cell", "quadratic", "cell_linear"), degree = 3L, df = 6L) {
   type <- match.arg(type)
   x <- .as_matrix(x)
   if (anyNA(x)) stop("basis fitting data cannot contain missing values.", call. = FALSE)
-  if (type == "cell") {
+  if (type %in% c("cell", "cell_linear")) {
     return(list(type = type, levels = sort(unique(.cell_keys(x))), p = ncol(x)))
   }
   if (type == "poly") {
@@ -60,12 +60,13 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
 .eval_basis_spec <- function(x, spec) {
   x <- .as_matrix(x)
   if (ncol(x) != spec$p) stop("new data have the wrong number of columns.", call. = FALSE)
-  if (spec$type == "cell") {
+  if (spec$type %in% c("cell", "cell_linear")) {
     index <- match(.cell_keys(x), spec$levels)
     out <- matrix(0, nrow(x), length(spec$levels) + 1L)
     out[, 1L] <- 1
     seen <- which(!is.na(index))
     out[cbind(seen, 1L + index[seen])] <- 1
+    if (spec$type == "cell_linear") return(cbind(poly_basis(x, degree = 1L), out[, -1L, drop = FALSE]))
     return(out)
   }
   if (spec$type == "poly") return(poly_basis(x, degree = spec$degree, intercept = TRUE))
@@ -103,6 +104,41 @@ poly_basis <- function(x, degree = 3L, intercept = TRUE) {
     out <- cbind(out, bj)
   }
   out
+}
+
+# Remove the redundant intercept from an indicator critic without changing its
+# ridge-weighted moment loss. F=(1,I) maps the nonredundant indicators to the
+# original design; F(C+ridge I)^-1 F' is evaluated by Sherman-Morrison.
+.moment_basis_spec <- function(z, spec, ridge) {
+  Q <- .eval_basis_spec(z, spec)
+  if (spec$type == "cell") {
+    Q <- Q[, -1L, drop = FALSE]
+    counts <- colMeans(Q)
+    inverse <- 1 / (counts + ridge)
+    alpha <- ridge / (length(counts) + 1)
+    W <- diag(inverse, length(counts)) +
+      alpha / (1 - alpha * sum(inverse)) * tcrossprod(inverse)
+  } else W <- .safe_inverse(crossprod(Q) / nrow(Q) + ridge * diag(ncol(Q)), ridge)
+  features <- .prediction_closure(function(newz) {
+    out <- .eval_basis_spec(.as_matrix(newz), spec)
+    if (spec$type == "cell") out[, -1L, drop = FALSE] else out
+  }, list(spec = spec))
+  list(Q = Q, W = W, features = features)
+}
+
+# The common cell value is not penalized. Eliminate it separately so a large
+# ridge cannot erase its small curvature through floating-point cancellation.
+.centered_ridge_solve <- function(S, b, lambda) {
+  p <- nrow(S)
+  if (p == 1L) return(as.numeric(.safe_solve(S, b)))
+  basis <- qr.Q(qr(cbind(rep(1 / sqrt(p), p), diag(p)[, -1L, drop = FALSE])))
+  small <- crossprod(basis, S %*% basis)
+  rhs <- as.numeric(crossprod(basis, b))
+  block <- small[-1L, -1L, drop = FALSE] + diag(lambda, p - 1L)
+  solved <- .safe_solve(block, cbind(rhs[-1L], small[-1L, 1L]))
+  pivot <- small[1L, 1L] - sum(small[1L, -1L] * solved[, 2L])
+  common <- (rhs[1L] - sum(small[1L, -1L] * solved[, 1L])) / pivot
+  as.numeric(basis %*% c(common, solved[, 1L] - solved[, 2L] * common))
 }
 
 #' Gaussian radial-basis kernel

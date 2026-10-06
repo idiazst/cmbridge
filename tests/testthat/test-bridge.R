@@ -80,7 +80,7 @@ test_that("grouped joint-category sieve agrees with the independent dense normal
                                           crossprod(A, W %*% (crossprod(Q, y) / length(y)))))
   expect_equal(f$coefficients, coef, tolerance = 1e-9)
   expect_equal(fitted(f)[active], as.numeric(H[active, , drop = FALSE] %*% coef), tolerance = 1e-9)
-  expect_equal(as.matrix(f$instrument_features(z)), Q)
+  expect_equal(as.matrix(f$instrument_features(z)), Q[, -1L, drop = FALSE])
   expect_equal(moment_loss(f), moment_loss(f, y, d, x, z), tolerance = 1e-10)
 
 })

@@ -1,10 +1,12 @@
-test_that("the common kernel Gram implements equation (22)", {
+test_that("the common kernel Gram removes self-products from equation (22)", {
   set.seed(31)
   z <- matrix(rnorm(60), ncol = 2)
   residual <- matrix(rnorm(90), ncol = 3)
   spec <- cmbridge:::.ensemble_kernel(z, "rbf",
     list(scale = FALSE, bandwidth = 0.7, approximation = "exact", block_size = 7L), 1L)
-  direct <- crossprod(residual, rbf_kernel(z, z, 0.7) %*% residual) / nrow(z)^2
+  K <- rbf_kernel(z, z, 0.7)
+  diag(K) <- 0
+  direct <- crossprod(residual, K %*% residual) / (nrow(z) * (nrow(z) - 1))
   expect_equal(cmbridge:::.ensemble_gram(residual, z, spec), direct, tolerance = 1e-12)
   spec2 <- cmbridge:::.ensemble_kernel(z, "rbf",
     list(scale = FALSE, bandwidth = 0.7, n_centers = nrow(z)), 1L)
@@ -69,7 +71,8 @@ test_that("inner predictions exclude their validation fold and ignore missing V"
   pred <- rep(0, length(d$M))
   pred[d$M == 1] <- predict(f, d$Vobs[d$M == 1])
   r <- 1 - d$M * pred
-  direct_loss <- as.numeric(crossprod(r, rbf_kernel(z, z, kernel$bandwidth) %*% r)) / length(r)^2
+  K <- rbf_kernel(z, z, kernel$bandwidth); diag(K) <- 0
+  direct_loss <- as.numeric(crossprod(r, K %*% r)) / (length(r) * (length(r) - 1))
   expect_equal(moment_loss(f, rep(1, length(r)), d$M, d$Vobs, d$B), direct_loss)
 })
 
@@ -126,4 +129,19 @@ test_that("bridge validation can score entirely unmeasured groups", {
   expect_true(all(is.finite(f$cv_residuals)))
   expect_equal(f$cv_residuals[folds == 1, 1], rep(-1, 4))
   expect_true(all(is.finite(predict(f, B))))
+})
+
+test_that("failed candidates are recorded and excluded across all validation folds", {
+  d <- make_small_bridge(n=400)
+  lib <- list(valid=list(method="sieve_md",control=list(target_basis="poly",instrument_basis="poly",target_degree=3,instrument_degree=5)),
+    failed=list(method="sieve_md",control=list(solver_max_iter=0)))
+  f <- fit_bridge_ensemble(d$B,d$Vobs,d$M,lib,fold_id=rep(1:2,200),kernel="cell")
+  expect_equal(f$weights,c(valid=1,failed=0))
+  expect_identical(f$active_candidates,"valid")
+  expect_identical(names(f$candidates),"valid")
+  expect_length(f$candidate_failures,1L)
+  expect_match(f$candidate_failures[[1]]$message,"solver")
+  expect_equal(predict(f,c(-.5,0,.5)),predict(f$candidates$valid,c(-.5,0,.5)))
+  failed <- tryCatch(fit_bridge_ensemble(d$B,d$Vobs,d$M,lib["failed"],fold_id=rep(1:2,200),kernel="cell"),error=identity)
+  expect_s3_class(failed,"cmbridge_ensemble_candidate_error")
 })

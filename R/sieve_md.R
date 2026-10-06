@@ -4,10 +4,14 @@
     target_degree = 3L, instrument_degree = 3L,
     target_df = 6L, instrument_df = 9L,
     lambda = 1e-8, weight_ridge = 1e-8,
-    link = "identity", solver_tolerance = 1e-10, solver_max_iter = 10000L
+    link = "identity", solver_tolerance = 1e-10, solver_max_iter = 10000L,
+    penalty_on = "function", cell_penalty_multiplier = 100
   ), control)
 
   ctrl$link <- match.arg(ctrl$link, c("identity", "log", "inverse_logit"))
+  ctrl$penalty_on <- match.arg(ctrl$penalty_on, c("function", "link"))
+  if (length(ctrl$cell_penalty_multiplier) != 1L || !is.finite(ctrl$cell_penalty_multiplier) || ctrl$cell_penalty_multiplier <= 0)
+    stop("cell_penalty_multiplier must be positive and finite.", call. = FALSE)
   if (!is.finite(ctrl$lambda) || ctrl$lambda < 0) stop("lambda must be nonnegative.", call. = FALSE)
   if (!is.finite(ctrl$solver_tolerance) || ctrl$solver_tolerance <= 0 ||
       !is.finite(ctrl$solver_max_iter) || ctrl$solver_max_iter < 1)
@@ -18,23 +22,28 @@
   if (anyNA(x[active, , drop = FALSE])) stop("target may be missing only where diagonal is zero.", call. = FALSE)
   if (anyNA(z)) stop("instrument cannot be missing for sieve minimum distance.", call. = FALSE)
 
-  if (ctrl$link != "identity" && (ctrl$target_basis != "cell" || ctrl$instrument_basis != "cell"))
-    stop("Positive sieve links require target_basis and instrument_basis = cell.", call. = FALSE)
   xspec <- .fit_basis_spec(x[active, , drop = FALSE], ctrl$target_basis,
                            ctrl$target_degree, ctrl$target_df)
   zspec <- .fit_basis_spec(z, ctrl$instrument_basis,
                            ctrl$instrument_degree, ctrl$instrument_df)
-  if (xspec$type == "cell" && zspec$type == "cell") {
+  if (xspec$type == "cell" && zspec$type == "cell" &&
+      (ctrl$link == "identity" || ctrl$penalty_on == "function")) {
     return(.fit_sieve_cells(y, d, x, z, active, xspec, zspec, ctrl))
   }
   H <- matrix(0, nrow(x), ncol(.eval_basis_spec(x[active, , drop = FALSE], xspec)))
   H[active, ] <- .eval_basis_spec(x[active, , drop = FALSE], xspec)
-  Q <- .eval_basis_spec(z, zspec)
+  critic <- .moment_basis_spec(z, zspec, ctrl$weight_ridge)
+  Q <- critic$Q
+  if (ctrl$link != "identity") {
+    out <- .fit_linked_sieve(y, d, x, H[active, , drop = FALSE], Q, critic$W, xspec, zspec, ctrl)
+    out$instrument_features <- critic$features
+    return(out)
+  }
 
   n <- length(y)
   A <- crossprod(Q, d * H) / n
   cvec <- crossprod(Q, y) / n
-  W <- .safe_inverse(crossprod(Q) / n + ctrl$weight_ridge * diag(ncol(Q)), ridge = ctrl$weight_ridge)
+  W <- critic$W
   P <- diag(ncol(H)); P[1L, 1L] <- 0
   lhs <- crossprod(A, W %*% A) + ctrl$lambda * P
   rhs <- crossprod(A, W %*% cvec)
@@ -59,8 +68,7 @@
       as.numeric(.eval_basis_spec(newx, xspec) %*% coef)
     }, list(xspec = xspec, coef = coef)),
     moment_weight = W,
-    instrument_features = .prediction_closure(function(newz) .eval_basis_spec(newz, zspec),
-                                              list(zspec = zspec))
+    instrument_features = critic$features
   )
 }
 
@@ -73,33 +81,35 @@
   nx <- length(xspec$levels); nz <- length(zspec$levels)
   J <- as.matrix(Matrix::sparseMatrix(i = zi[active], j = xi, x = d[active],
                                     dims = c(nz, nx)))
-  A <- rbind(c(sum(J), colSums(J)), cbind(rowSums(J), J)) / n
+  A <- J / n
   group_sum <- function(value) {
     grouped <- rowsum(value, zi, reorder = TRUE)
     out <- numeric(nz)
     out[as.integer(rownames(grouped))] <- grouped[, 1L]
     out
   }
-  cvec <- c(sum(y), group_sum(y)) / n
-  counts <- tabulate(zi, nbins = nz) / n
-  covariance <- rbind(c(1, counts), cbind(counts, diag(counts, nrow = nz)))
-  W <- .safe_inverse(covariance + ctrl$weight_ridge * diag(nz + 1L),
-                     ridge = ctrl$weight_ridge)
-  P <- diag(nx + 1L); P[1L, 1L] <- 0
+  cvec <- group_sum(y) / n
+  critic <- .moment_basis_spec(z, zspec, ctrl$weight_ridge)
+  W <- critic$W
   solver <- NULL
   if (ctrl$link == "identity") {
-    coef <- as.numeric(.safe_solve(crossprod(A, W %*% A) + ctrl$lambda * P,
-                                   crossprod(A, W %*% cvec)))
+    # Equivalent function-value normal equations, with a stable common term.
+    Acell <- A
+    values <- .centered_ridge_solve(crossprod(Acell, W %*% Acell),
+      as.numeric(crossprod(Acell, W %*% cvec)), ctrl$lambda)
+    coef <- c(mean(values), values - mean(values))
   } else {
     # Optimize unrestricted real link coefficients. The range restriction
     # follows only from the inverse-expit (or exponential) parameterization.
     # Retain the original ridge penalty on FUNCTION values for comparability.
-    Acell <- A[, -1L, drop = FALSE]
+    Acell <- A
     center <- diag(nx) - matrix(1 / nx, nx, nx)
-    S <- crossprod(Acell, W %*% Acell) + ctrl$lambda * center
+    S_base <- crossprod(Acell, W %*% Acell)
+    S <- S_base + ctrl$lambda * center
     b <- as.numeric(crossprod(Acell, W %*% cvec))
     solver <- .sieve_link_solve(S, b, as.numeric(crossprod(cvec, W %*% cvec)),
-                              ctrl$link, ctrl$solver_tolerance, ctrl$solver_max_iter)
+                              ctrl$link, ctrl$solver_tolerance, ctrl$solver_max_iter,
+                              S_base = S_base, lambda = ctrl$lambda)
     values <- solver$values
     common <- mean(values)
     coef <- c(common, values - common)
@@ -107,7 +117,7 @@
   pred_train <- rep(NA_real_, n)
   pred_train[active] <- if (ctrl$link == "identity") coef[1L] + coef[1L + xi] else solver$values[xi]
   residual <- y - d * ifelse(is.na(pred_train), 0, pred_train)
-  moment <- c(sum(residual), group_sum(residual)) / n
+  moment <- group_sum(residual) / n
   link_coef <- link_intercept <- NULL
   if (ctrl$link != "identity") {
     values <- solver$values
@@ -139,51 +149,46 @@
     moment_loss = as.numeric(crossprod(moment, W %*% moment)), tuning = ctrl,
     predict_fun = predict_fun,
     moment_weight = W,
-    instrument_features = .prediction_closure(function(newz) {
-      newz <- .as_matrix(newz)
-      if (ncol(newz) != zspec$p) stop("new data have the wrong number of columns.", call. = FALSE)
-      index <- match(.cell_keys(newz), zspec$levels)
-      seen <- which(!is.na(index)); nr <- nrow(newz)
-      Matrix::sparseMatrix(i = c(seq_len(nr), seen),
-                           j = c(rep(1L, nr), 1L + index[seen]), x = 1,
-                           dims = c(nr, nz + 1L))
-    }, list(zspec = zspec, nz = nz))
+    instrument_features = critic$features
   )
 }
 
 # Inverse-expit is evaluated as 1 + exp(-eta) for numerical stability.
 # Every optimizer parameter is an unrestricted real number; no box bounds,
 # active-set solve, transformed coefficient clipping, or prediction clipping.
-.sieve_link_objective <- function(S, b, constant, link) {
+.sieve_link_objective <- function(S, b, constant, link, S_base = NULL, lambda = 0) {
   sign <- if (link == "inverse_logit") -1 else 1
   offset <- if (link == "inverse_logit") 1 else 0
   scale <- max(diag(S))
   if (!is.finite(scale) || scale <= 0) stop("Linked sieve has no identified cell direction.", call. = FALSE)
   value <- function(eta) offset + exp(sign * eta)
-  origin <- as.numeric(.safe_solve(S, b))
-  origin_gradient <- as.numeric(S %*% origin - b)
-  reference_loss <- as.numeric(constant + crossprod(origin, S %*% origin) - 2 * crossprod(b, origin))
+  multiply <- if (is.null(S_base)) function(v) as.numeric(S %*% v) else
+    function(v) as.numeric(S_base %*% v) + lambda * (v - mean(v))
+  quadratic <- if (is.null(S_base)) function(v) as.numeric(crossprod(v, S %*% v)) else
+    function(v) as.numeric(crossprod(v, S_base %*% v)) + lambda * sum((v - mean(v))^2)
+  origin <- if (is.null(S_base)) as.numeric(.safe_solve(S, b)) else .centered_ridge_solve(S_base, b, lambda)
+  origin_gradient <- multiply(origin) - b
+  reference_loss <- constant + quadratic(origin) - 2 * sum(b * origin)
   fn <- function(eta) {
     v <- value(eta)
     if (any(!is.finite(v))) return(Inf)
     difference <- v - origin
-    as.numeric(crossprod(difference, S %*% difference) +
-      2 * crossprod(origin_gradient, difference)) / scale
+    (quadratic(difference) + 2 * sum(origin_gradient * difference)) / scale
   }
   gr <- function(eta) {
     gap <- exp(sign * eta)
-    2 * sign * gap * as.numeric(S %*% (offset + gap) - b) / scale
+    2 * sign * gap * (multiply(offset + gap) - b) / scale
   }
   list(fn = fn, gr = gr, value = value, scale = scale, offset = offset, sign = sign,
-       reference_loss = reference_loss)
+       reference_loss = reference_loss, multiply = multiply, origin = origin)
 }
 
-.sieve_link_solve <- function(S, b, constant, link, tolerance, max_iter) {
+.sieve_link_solve <- function(S, b, constant, link, tolerance, max_iter, S_base = NULL, lambda = 0) {
   S <- (S + t(S)) / 2
-  problem <- .sieve_link_objective(S, b, constant, link)
+  problem <- .sieve_link_objective(S, b, constant, link, S_base, lambda)
   # These values only initialize the unrestricted coefficients; the optimizer
   # may move in either direction over the entire real parameter space.
-  raw <- as.numeric(.safe_solve(S, b))
+  raw <- problem$origin
   start <- problem$sign * log(pmax(.1, raw - problem$offset))
   initial_loss <- problem$fn(start)
   threshold <- 10 * sqrt(tolerance) * max(1, sqrt(abs(initial_loss)))
@@ -192,7 +197,7 @@
                       coefficient_gradient = double(), function_gradient = double())
   assess <- function(par) {
     values <- problem$value(par)
-    gradient <- 2 * as.numeric(S %*% values - b) / sqrt(diag(S))
+    gradient <- 2 * (problem$multiply(values) - b) / sqrt(diag(S))
     gap <- exp(problem$sign * par)
     # Near the limiting link value, inspect the function gradient as well as
     # the coefficient gradient: a nearly flat link must not hide a descent.
@@ -240,7 +245,7 @@
     best_index <- which.min(vapply(fits, function(fit) problem$fn(fit$par), numeric(1L)))
     candidate <- fits[[best_index]]$par
     gap <- exp(problem$sign * candidate)
-    gradient <- 2 * as.numeric(S %*% problem$value(candidate) - b) / sqrt(diag(S))
+    gradient <- 2 * (problem$multiply(problem$value(candidate)) - b) / sqrt(diag(S))
     hidden_descent <- which(gradient < -threshold & gap < .1)
     boundary_descent <- which(gradient > threshold & gap > threshold & gap < .1)
     if (!length(hidden_descent) && !length(boundary_descent)) break

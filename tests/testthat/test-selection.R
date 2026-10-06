@@ -57,3 +57,20 @@ test_that("penalty selection records boundary failures and extends both directio
   tied <- select_penalty_grid(c(.001, .01, .1), function(x) rep(1, length(x)))
   expect_equal(tied$scale, .01)
 })
+
+test_that("failed penalty trials are recorded without selecting their invalid fits", {
+  evaluate <- function(scales) {
+    if (scales < .001) stop("unstable fit")
+    if (scales > .1) return(NaN)
+    (log10(scales)+2)^2
+  }
+  selected <- select_penalty_grid(10^seq(-4,0),evaluate)
+  expect_equal(selected$scale,.01)
+  expect_true(all(selected$penalty_cv$failed[c(1,5)]))
+  expect_false(selected$penalty_cv$failed[selected$penalty_cv$selected])
+  expect_true(all(nzchar(selected$penalty_cv$failure[selected$penalty_cv$failed])))
+  failed <- tryCatch(select_penalty_grid(c(.01,.1,1),function(x)stop("no valid fits")),error=identity)
+  expect_s3_class(failed,"cmbridge_penalty_fit_error")
+  expect_false(any(failed$penalty_cv$selected))
+  expect_true(all(failed$penalty_cv$failed))
+})
