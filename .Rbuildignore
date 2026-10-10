@@ -1,3 +1,6 @@
 ^\.github$
 ^\.git$
 ^\.Rbuildignore$
+^validation-artifacts$
+^check$
+^Rplots\.pdf$

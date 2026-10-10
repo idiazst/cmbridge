@@ -93,7 +93,7 @@ By default the common scorer uses a training-derived Nyström approximation
 of a Gaussian kernel, with 100 centers, to support large samples. It is
 independent of candidate fitting features. Increase `n_centers` as needed;
 a fixed low-rank kernel need not detect all conditional-moment violations.
-For the exact Gaussian V-statistic, use
+For the exact Gaussian U-statistic, use
 `kernel_control = list(approximation = "exact")`; its memory use is blocked
 but its computational cost is quadratic in the scored sample size.
 Fold-specific Gram matrices are averaged with weights proportional to their
@@ -107,7 +107,7 @@ the untouched outer validation sample. These wrappers perform inner
 stacking and do not implement the full longitudinal causal estimator.
 
 The independent ensemble selection validation is in
-[`idiazst/cmbridge-tests`](https://github.com/idiazst/cmbridge-tests).
+`tests/validation`, with its figures uploaded by this package’s CI. Longitudinal studies live in [`lmtp_selfcensor_sim`](https://github.com/idiazst/lmtp_selfcensor_sim).
 
 ## Saturated discrete learners
 
@@ -167,11 +167,11 @@ constant. Finite bounds require a constrained optimizer and are rejected here. A
 penalty path is used, and incomplete solver fits raise an error.
 
 The observed-history longitudinal integration and exact-truth simulation are
-in the sibling lmtp development package and cmbridge-tests repository. Broad
+in the `self-censoring` branch of [idiazst/lmtp](https://github.com/idiazst/lmtp/tree/self-censoring) and the separate [lmtp_selfcensor_sim](https://github.com/idiazst/lmtp_selfcensor_sim) repository. Broad
 function classes contain the true discrete functions; small effective cell
 counts and weak inverse operators can still affect finite-sample performance.
 
-See `REVIEW.md` for the implementation review and method-selection rationale, `REFERENCES.bib` for citations, and `inst/simulations/validate_large_sample.R` for the large-sample recovery study.
+See `REVIEW.md` for the implementation review and method-selection rationale, `REFERENCES.bib` for citations, and `tests/validation/README.md` for the optional recovery checks.
 
 The joint-category `sieve_md` supports `control = list(target_basis = "cell", instrument_basis = "cell", link = "inverse_logit")`. It directly optimizes unrestricted real coefficients and predicts `1 / expit(eta) = 1 + exp(-eta)`, giving values above one. `link = "log"` uses an exponential parameterization, and the default `identity` link remains unrestricted on the function scale. The linked fit keeps the original ridge penalty on function-scale cell deviations, records optimizer traces and gradient checks, and imposes no coefficient bounds or prediction clipping.
 

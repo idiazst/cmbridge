@@ -1,2 +1,6 @@
 *.tar.gz
 *.Rcheck/
+
+validation-artifacts/
+check/
+Rplots.pdf
