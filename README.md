@@ -75,6 +75,10 @@ ensemble <- fit_bridge_ensemble(B, V, M, library = library, n_folds = 5L)
 ensemble$weights
 predict(ensemble, newdata = V_new)
 
+# Retain self-products in ensemble and candidate penalty validation.
+ensemble_v <- fit_bridge_ensemble(B, V, M, library = library,
+                                  n_folds = 5L, statistic = "v")
+
 # phi_known is a known or independently estimated loading vector.
 adjoint <- fit_adjoint_ensemble(B, V, M, phi_known, library = library)
 predict(adjoint, newdata = B_new)
@@ -101,6 +105,14 @@ scored sample sizes. `cv_loss`, `candidate_cv_loss`, and `gram` expose the
 criterion used to select the weights; `moment_loss()` supports the common
 scorer on new data.
 
+`statistic = "u"` is the default for both ensemble functions. It excludes
+self-products and projects the averaged validation Gram to PSD before selecting
+weights. `statistic = "v"` retains self-products and uses the already-PSD Gram
+directly, without projection. The setting also controls candidate penalty CV
+and training/new-data moment losses. V introduces a candidate-dependent
+finite-sample bias, so nonnegative scores alone do not imply better selection.
+The returned `statistic` and `psd_projection$applied` record this choice.
+
 When using an ensemble in an outer cross-fitted causal estimator, supply
 only that outer training sample to the ensemble function, then predict on
 the untouched outer validation sample. These wrappers perform inner
@@ -124,7 +136,7 @@ bridge <- fit_bridge_ensemble(B, V, M, library = cells,
 The cell scorer uses ordered pairs of distinct observations within each joint
 conditioning cell. It excludes self-products and divides each cell's sum by
 `n * (cell_count - 1)`. Singleton cells contribute zero and their count is
-recorded; a validation sample containing only singleton cells raises an error.
+recorded; a validation sample containing only singleton cells has zero U score.
 Every conditioning variable, including treatment, is retained. Ensemble weights
 use the PSD projection of the averaged U-statistic Gram. `raw_gram`,
 `candidate_raw_cv_loss`, `raw_cv_loss`, and `psd_projection` retain the original

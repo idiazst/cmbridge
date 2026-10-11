@@ -4,7 +4,7 @@
 \usage{
 fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
   fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
-  kernel_control = list(), solver_control = list())
+  kernel_control = list(), solver_control = list(), statistic = c("u", "v"))
 }
 \arguments{
 \item{B}{Numeric vector or matrix indexing the bridge conditional moment.}
@@ -17,31 +17,37 @@ fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
 \item{kernel}{Common validation kernel: Gaussian RBF, \code{linear} (an intercept plus standardized linear features), or \code{cell} (joint categorical cells).}
 \item{kernel_control}{List with \code{scale} (default TRUE), \code{bandwidth} (default training-sample median distance), \code{approximation} (\code{"nystrom"}, default, or \code{"exact"}), \code{n_centers} (100), \code{block_size} (512), optional \code{seed}, \code{nystrom_ridge} (1e-10), and \code{nystrom_tol} (1e-10). Gaussian centers, scaling, and bandwidth are learned exclusively in each inner training sample. Increase the rank as needed; a fixed low-rank kernel need not detect every conditional-moment violation. Exact Gaussian scoring uses blocks to avoid an n-by-n stored kernel, but retains quadratic computation.}
 \item{solver_control}{List with \code{tol} (1e-8) and \code{max_iter} (50000) for simplex quadratic optimization. The tolerance applies after scaling the Gram matrix by its largest absolute entry.}
+\item{statistic}{\code{"u"} (default) excludes self-products; \code{"v"} retains them. Applies to ensemble validation, candidate penalty CV, and training/new-data moment losses.}
 }
 \description{Combines candidates to solve \eqn{E[M\beta(V)-1\mid B]=0}, using the common RKHS maximum-moment validation criterion of Section 5.3.2 of the methodology paper.}
-\details{Every kernel score excludes self-products: cell, Gaussian, and linear.
-Penalty CV uses the same kernel and training-only kernel specification as
+\details{Every kernel supports U and V scoring: cell, Gaussian, and linear.
+Penalty CV uses the same statistic, kernel and training-only kernel specification as
 ensemble selection. Failed penalty trials are recorded and never selected.
 Candidates which fail tuning, fitting, or validation are excluded across all
 folds and given weight zero; the returned object retains their failure details.
 An ensemble with no valid candidates raises an error.
 
-For each inner fold, fit candidates on the other folds, form held-out residuals, and compute \eqn{G_f=R_f^T K_f R_f/n_f^2}. When \code{M=0}, the residual is -1 and V is not evaluated. The common Gram matrix is the average of fold-specific matrices weighted by their scored sample sizes. Weights minimize \eqn{\alpha^T G\alpha} over nonnegative weights summing to one. Candidates are refit on the entire supplied sample before prediction.
+For each inner fold, fit candidates on the other folds and form held-out residuals. Gaussian and linear V scores use \eqn{G_f=R_f^T K_f R_f/n_f^2}; U scores replace the kernel diagonal by zero and divide by \eqn{n_f(n_f-1)}. When \code{M=0}, the residual is -1 and V is not evaluated. The common Gram matrix is the average of fold-specific matrices weighted by their scored sample sizes. Weights minimize \eqn{\alpha^T G\alpha} over nonnegative weights summing to one. Candidates are refit on the entire supplied sample before prediction.
 
-Nystr\"om scoring uses a common low-rank approximation of the Gaussian kernel, independently of the kernels or bases used to fit the candidate learners. Exact scoring evaluates the full Gaussian V-statistic. The linear kernel is a finite-feature conditional-moment diagnostic, not a generally identifying kernel.
+Nystr\"om scoring uses a common low-rank approximation of the Gaussian kernel, independently of the kernels or bases used to fit the candidate learners. Exact scoring evaluates the full Gaussian kernel with the selected statistic. The linear kernel is a finite-feature conditional-moment diagnostic, not a generally identifying kernel.
 
 To preserve outer cross-fitting, call this function with only the outer training observations and predict on the untouched outer validation sample. This function performs inner stacking; it does not construct the complete longitudinal causal estimator.
 
-Cell scoring uses distinct pairs within each joint conditioning cell. For a
+Cell U scoring uses distinct pairs within each joint conditioning cell. For a
 cell containing \eqn{m} observations in a validation sample of size \eqn{n},
 its contribution is the sum of ordered residual cross-products with unequal
 indices, divided by \eqn{n(m-1)}. Singleton cells contribute zero, including samples where every
-cell is a singleton. All conditioning columns are retained.
+cell is a singleton. Cell V scoring includes all ordered pairs and divides by
+\eqn{nm}; singleton cells therefore contribute their residual outer product
+divided by \eqn{n}. All conditioning columns are retained.
 Raw U-statistic matrices can be indefinite. The averaged Gram is projected
 onto the positive semidefinite cone by replacing negative eigenvalues by zero
-before simplex optimization. The raw matrix, raw candidate losses, and the
-projection adjustment are retained. Penalty selection uses the raw scalar
-U-statistic, without truncating negative losses to zero.
+before simplex optimization. V matrices are already positive semidefinite and
+are used directly without projection. The raw matrix, raw candidate losses,
+projection adjustment and whether projection was applied are retained. Penalty
+selection uses the raw scalar selected statistic, without truncating negative
+U losses to zero. V self-products introduce a candidate-dependent finite-sample
+bias; nonnegative scores do not imply more accurate weight selection.
 
 A sieve, Landweber or saturated L1 candidate can supply \code{penalty_scales}. For
 \code{sieve_md}, these are absolute ridge \code{lambda} values. For

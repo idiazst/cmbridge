@@ -1,12 +1,14 @@
-#' Cell conditional-moment U-statistic
+#' Cell conditional-moment U- or V-statistic
 #'
-#' Excludes self-products within each joint conditioning cell. Singleton cells
-#' contribute zero; they cannot supply a pair of distinct observations.
+#' U excludes self-products within each joint conditioning cell. V retains them.
+#' Singleton cells contribute zero to U and their squared residual to V / n.
 #' @param residual Numeric residual vector or matrix, one candidate per column.
 #' @param instrument Numeric conditioning matrix. All columns are retained.
-#' @return Symmetric matrix, which need not be positive semidefinite.
+#' @param statistic "u" (default) or "v".
+#' @return Symmetric matrix, positive semidefinite for V but possibly indefinite for U.
 #' @export
-cell_moment_gram <- function(residual, instrument) {
+cell_moment_gram <- function(residual, instrument, statistic = c("u", "v")) {
+  statistic <- match.arg(statistic)
   residual <- as.matrix(residual)
   instrument <- .as_matrix(instrument)
   n <- nrow(residual)
@@ -17,6 +19,13 @@ cell_moment_gram <- function(residual, instrument) {
   counts <- tabulate(index)
   eligible <- counts > 1L
   sums <- rowsum(residual, index, reorder = FALSE)
+  if (statistic == "v") {
+    G <- crossprod(sums / sqrt(as.double(n) * counts))
+    G <- (G + t(G)) / 2
+    attr(G, "cell_scoring") <- list(n = n, cells = length(counts),
+      singleton_cells = sum(!eligible), paired_rows = sum(counts[eligible]))
+    return(G)
+  }
   denominator <- as.double(n) * (counts - 1)
   # sum_{i != j} r_i r_j' = S S' - sum_i r_i r_i'.
   G <- crossprod(sums[eligible, , drop = FALSE] / sqrt(denominator[eligible]))

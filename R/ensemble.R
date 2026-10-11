@@ -63,7 +63,8 @@
   out
 }
 
-.ensemble_kernel <- function(z, kernel, control, seed) {
+.ensemble_kernel <- function(z, kernel, control, seed, statistic = c("u", "v")) {
+  statistic <- match.arg(statistic)
   ctrl <- .merge_control(list(
     scale = TRUE, bandwidth = NULL, approximation = "nystrom",
     n_centers = 100L, block_size = 512L, seed = NULL,
@@ -73,7 +74,7 @@
     stop("kernel scale must be TRUE or FALSE.", call. = FALSE)
   }
   ctrl$block_size <- .ensemble_integer(ctrl$block_size, "block_size")
-  spec <- list(kernel = kernel, control = ctrl)
+  spec <- list(kernel = kernel, control = ctrl, statistic = statistic)
   spec$scale <- if (ctrl$scale) .scale_fit(z) else
     list(center = rep(0, ncol(z)), scale = rep(1, ncol(z)))
   if (kernel %in% c("linear", "cell")) return(spec)
@@ -102,14 +103,16 @@
   .nystrom_apply(zs, spec$nystrom)
 }
 
-.ensemble_gram <- function(residual, z, spec) {
+.ensemble_gram <- function(residual, z, spec,
+                           statistic = if (is.null(spec$statistic)) "u" else spec$statistic) {
+  statistic <- match.arg(statistic, c("u", "v"))
   residual <- as.matrix(residual)
   n <- nrow(residual)
   if (!n || nrow(z) != n || any(!is.finite(residual))) {
     stop("scoring requires finite residuals on a nonempty validation sample.", call. = FALSE)
   }
-  if (spec$kernel == "cell") return(cell_moment_gram(residual, z))
-  if (n < 2L) return(matrix(0, ncol(residual), ncol(residual)))
+  if (spec$kernel == "cell") return(cell_moment_gram(residual, z, statistic))
+  if (n < 2L && statistic == "u") return(matrix(0, ncol(residual), ncol(residual)))
   starts <- seq.int(1L, n, by = spec$control$block_size)
   if (spec$kernel == "linear" || !is.null(spec$nystrom)) {
     moment <- NULL
@@ -118,12 +121,14 @@
       ii <- seq.int(start, min(n, start + spec$control$block_size - 1L))
       features <- .ensemble_features(z[ii, , drop = FALSE], spec)
       term <- crossprod(features, residual[ii, , drop = FALSE])
-      diagonal <- diagonal + crossprod(residual[ii, , drop = FALSE] * sqrt(rowSums(features^2)))
+      if (statistic == "u") diagonal <- diagonal +
+        crossprod(residual[ii, , drop = FALSE] * sqrt(rowSums(features^2)))
       moment <- if (is.null(moment)) term else moment + term
     }
-    G <- (crossprod(moment) - diagonal) / (n * (n - 1))
+    G <- if (statistic == "u") (crossprod(moment) - diagonal) / (as.double(n) * (n - 1))
+      else crossprod(moment) / as.double(n)^2
   } else {
-    # Exact equation (22), evaluated in blocks to avoid storing an n-by-n K.
+    # Evaluate the full kernel in blocks. U excludes self-products; V retains them.
     zs <- .scale_apply(z, spec$scale)
     G <- matrix(0, ncol(residual), ncol(residual))
     for (start in starts) {
@@ -131,7 +136,8 @@
       K <- rbf_kernel(zs[ii, , drop = FALSE], zs, spec$bandwidth)
       G <- G + crossprod(residual[ii, , drop = FALSE], K %*% residual)
     }
-    G <- (G - crossprod(residual)) / (n * (n - 1))
+    G <- if (statistic == "u") (G - crossprod(residual)) / (as.double(n) * (n - 1))
+      else G / as.double(n)^2
   }
   (G + t(G)) / 2
 }
@@ -218,7 +224,8 @@
 }
 
 .fit_ensemble <- function(B, V, M, phi, type, library, n_folds, fold_id,
-                          seed, kernel, kernel_control, solver_control) {
+                          seed, kernel, kernel_control, solver_control, statistic = "u") {
+  statistic <- match.arg(statistic, c("u", "v"))
   had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   if (had_seed) saved_seed <- get(".Random.seed", envir = .GlobalEnv)
   on.exit({
@@ -308,7 +315,7 @@
           stop("Each penalty training and validation group needs measured observations.")
         training_z <- if (type == "bridge") train else train[M[train] == 1]
         list(train = train, validation = validation, observed = observed_validation,
-          scoring = .ensemble_kernel(Z[training_z, , drop = FALSE], kernel, kernel_control, seed),
+          scoring = .ensemble_kernel(Z[training_z, , drop = FALSE], kernel, kernel_control, seed, statistic),
           response = if (type == "adjoint") .ensemble_loading(phi, train, validation, n) else NULL)
       })
       count <- sum(vapply(plans, function(plan)
@@ -349,6 +356,8 @@
       out$penalty_cv$scored_rows <- count
       out$penalty_cv$paired_rows <- paired_count
       out$penalty_cv$informative <- paired_count > 0L
+      if (statistic == "v") out$penalty_cv$informative <- count > 0L
+      out$penalty_cv$statistic <- statistic
       out$penalty_boundary <- selected$boundary_history
       out$penalty_status <- selected$status
       out$penalty_parameter <- switch(candidate$method,
@@ -400,7 +409,7 @@
     colnames(residual) <- names(library)
     cv_residuals[scored, ] <- residual
     kernel_train <- if (type == "bridge") train else observed_train
-    spec <- .ensemble_kernel(Z[kernel_train, , drop = FALSE], kernel, kernel_control, seed + fold)
+    spec <- .ensemble_kernel(Z[kernel_train, , drop = FALSE], kernel, kernel_control, seed + fold, statistic)
     scoring_specs[[fold]] <- spec; scoring_rows[[fold]] <- scored
     # Reject a candidate whose quadratic score overflows, retaining all other
     # candidates on these same validation rows and person assignments.
@@ -428,7 +437,10 @@
   G <- Reduce(`+`, Map(function(g, count) g * count / sum(counts), grams, counts))
   dimnames(G) <- list(active, active)
   raw_gram <- G
-  projection <- .project_gram_psd(raw_gram)
+  projection <- if (statistic == "u") .project_gram_psd(raw_gram) else
+    list(gram = raw_gram, eigenvalues = eigen(raw_gram, symmetric = TRUE, only.values = TRUE)$values,
+      removed_negative_eigenvalues = 0L, adjustment_norm = 0)
+  projection$applied <- statistic == "u"
   G <- projection$gram
   solution <- .simplex_qp(G, solver_control)
   active_weights <- stats::setNames(solution$weights, active)
@@ -446,15 +458,15 @@
   training_index <- if (type == "bridge") seq_len(n) else complete
   residual <- if (type == "bridge") M * ifelse(is.na(fitted), 0, fitted) - 1 else
     fitted[complete] - final_loading[complete]
-  scoring_kernel <- .ensemble_kernel(Z[training_index, , drop = FALSE], kernel, kernel_control, seed)
+  scoring_kernel <- .ensemble_kernel(Z[training_index, , drop = FALSE], kernel, kernel_control, seed, statistic)
   training_loss <- .ensemble_gram(matrix(residual, ncol = 1L), Z[training_index, , drop = FALSE], scoring_kernel)[1, 1]
   out <- list(
-    method = "ensemble", type = type, n = n, n_scored = sum(counts),
+    method = "ensemble", type = type, statistic = statistic, n = n, n_scored = sum(counts),
     library = library, candidates = final_fits, weights = weights,
     active_candidates = active, candidate_failures = failures,
     fold_id = folds, fold_gram = grams, fold_n_scored = counts, gram = G,
     raw_gram = raw_gram, psd_projection = projection[c("eigenvalues",
-      "removed_negative_eigenvalues", "adjustment_norm")],
+      "removed_negative_eigenvalues", "adjustment_norm", "applied")],
     fold_penalty_cv = fold_penalty_cv, fold_penalty_boundary = fold_penalty_boundary,
     candidate_raw_cv_loss = raw_losses,
     raw_cv_loss = as.numeric(crossprod(active_weights, raw_gram %*% active_weights)),
@@ -473,25 +485,31 @@
 }
 
 #' Cross-validated ensemble for a bridge equation
+#' @param statistic Validation and penalty-CV statistic: "u" excludes self-products
+#'   and projects the ensemble Gram to PSD; "v" retains self-products and uses its
+#'   already-PSD Gram directly. Defaults to "u".
 #' @export
 fit_bridge_ensemble <- function(B, V, M, library = NULL, n_folds = 5L,
                                 fold_id = NULL, seed = 1L,
                                 kernel = c("rbf", "linear", "cell"),
-                                kernel_control = list(), solver_control = list()) {
+                                kernel_control = list(), solver_control = list(),
+                                statistic = c("u", "v")) {
   fit <- .fit_ensemble(B, V, M, NULL, "bridge", library, n_folds, fold_id,
-                       seed, match.arg(kernel), kernel_control, solver_control)
+                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
   fit$call <- match.call()
   fit
 }
 
 #' Cross-validated ensemble for an adjoint equation
+#' @param statistic Validation and penalty-CV statistic; see fit_bridge_ensemble.
 #' @export
 fit_adjoint_ensemble <- function(B, V, M, phi, library = NULL, n_folds = 5L,
                                  fold_id = NULL, seed = 1L,
                                  kernel = c("rbf", "linear", "cell"),
-                                 kernel_control = list(), solver_control = list()) {
+                                 kernel_control = list(), solver_control = list(),
+                                 statistic = c("u", "v")) {
   fit <- .fit_ensemble(B, V, M, phi, "adjoint", library, n_folds, fold_id,
-                       seed, match.arg(kernel), kernel_control, solver_control)
+                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
   fit$call <- match.call()
   fit
 }
@@ -500,6 +518,7 @@ fit_adjoint_ensemble <- function(B, V, M, phi, library = NULL, n_folds = 5L,
 print.cmbridge_ensemble <- function(x, ...) {
   cat("Cross-validated conditional-moment ensemble\n")
   cat("  type: ", x$type, "\n", sep = "")
+  cat("  statistic: ", if (is.null(x$statistic)) "u" else x$statistic, "\n", sep = "")
   cat("  n: ", x$n, "; folds: ", max(x$fold_id), "\n", sep = "")
   cat("  cross-validated moment loss: ", format(x$cv_loss, digits = 5), "\n", sep = "")
   print(x$weights)

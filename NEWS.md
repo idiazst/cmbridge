@@ -1,3 +1,10 @@
+# cmbridge 0.3.0.9022
+
+- Add `statistic = "u"` or `"v"` to bridge and adjoint ensembles for Gaussian,
+  linear and cell scoring, including training-only candidate penalty CV and
+  reported moment losses. Preserve U as the default. Use V Grams directly
+  without PSD projection, and record the chosen statistic and projection status.
+
 # cmbridge 0.3.0.9021
 
 - Allow Landweber candidates to cross-validate their positive conditioning-weight ridge on the same training-only person splits and raw U-statistic criterion as other candidates. Preserve boundary extension, failed-trial records, target classes and existing solver checks; retain the selected parameter name and full tuning history.
