@@ -1,7 +1,7 @@
 name: Package checks and recovery validation
 on:
   push:
-    branches: [main]
+    branches: [main, ensemble-psd-comparison]
   pull_request:
   workflow_dispatch:
 permissions:

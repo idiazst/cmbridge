@@ -4,7 +4,7 @@
 \usage{
 fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
   fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
-  kernel_control = list(), solver_control = list(), statistic = c("u", "v"))
+  kernel_control = list(), solver_control = list(), statistic = c("u", "v"), project_psd = TRUE)
 }
 \arguments{
 \item{B}{Numeric vector or matrix indexing the adjoint function.}
@@ -18,6 +18,7 @@ fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
 \item{kernel}{Common scoring kernel on V.}
 \item{kernel_control}{Scoring-kernel controls; see \code{fit_bridge_ensemble}.}
 \item{solver_control}{Simplex optimization controls; see \code{fit_bridge_ensemble}.}
+\item{project_psd}{Whether to project the U-statistic ensemble Gram to PSD. Defaults to TRUE. FALSE globally minimizes the raw criterion by enumerating simplex faces, supports at most 10 active candidates, and does not change candidate penalty CV. Ignored for the naturally PSD V-statistic.}
 \item{statistic}{\code{"u"} (default) or \code{"v"}, for validation, candidate penalty CV, and moment losses. See \code{fit_bridge_ensemble} for projection and bias details.}
 }
 \description{Fits a convex ensemble for \eqn{E[M\{\lambda(B)-\phi(V)\}\mid V]=0}.}

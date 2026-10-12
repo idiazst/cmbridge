@@ -4,7 +4,7 @@
 \usage{
 fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
   fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
-  kernel_control = list(), solver_control = list(), statistic = c("u", "v"))
+  kernel_control = list(), solver_control = list(), statistic = c("u", "v"), project_psd = TRUE)
 }
 \arguments{
 \item{B}{Numeric vector or matrix indexing the bridge conditional moment.}
@@ -17,6 +17,7 @@ fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
 \item{kernel}{Common validation kernel: Gaussian RBF, \code{linear} (an intercept plus standardized linear features), or \code{cell} (joint categorical cells).}
 \item{kernel_control}{List with \code{scale} (default TRUE), \code{bandwidth} (default training-sample median distance), \code{approximation} (\code{"nystrom"}, default, or \code{"exact"}), \code{n_centers} (100), \code{block_size} (512), optional \code{seed}, \code{nystrom_ridge} (1e-10), and \code{nystrom_tol} (1e-10). Gaussian centers, scaling, and bandwidth are learned exclusively in each inner training sample. Increase the rank as needed; a fixed low-rank kernel need not detect every conditional-moment violation. Exact Gaussian scoring uses blocks to avoid an n-by-n stored kernel, but retains quadratic computation.}
 \item{solver_control}{List with \code{tol} (1e-8) and \code{max_iter} (50000) for simplex quadratic optimization. The tolerance applies after scaling the Gram matrix by its largest absolute entry.}
+\item{project_psd}{Whether to project the U-statistic ensemble Gram to PSD. Defaults to TRUE. FALSE globally minimizes the raw criterion by enumerating simplex faces, supports at most 10 active candidates, and does not change candidate penalty CV. Ignored for the naturally PSD V-statistic.}
 \item{statistic}{\code{"u"} (default) excludes self-products; \code{"v"} retains them. Applies to ensemble validation, candidate penalty CV, and training/new-data moment losses.}
 }
 \description{Combines candidates to solve \eqn{E[M\beta(V)-1\mid B]=0}, using the common RKHS maximum-moment validation criterion of Section 5.3.2 of the methodology paper.}
@@ -42,7 +43,7 @@ cell is a singleton. Cell V scoring includes all ordered pairs and divides by
 divided by \eqn{n}. All conditioning columns are retained.
 Raw U-statistic matrices can be indefinite. The averaged Gram is projected
 onto the positive semidefinite cone by replacing negative eigenvalues by zero
-before simplex optimization. V matrices are already positive semidefinite and
+before simplex optimization by default. With \code{project_psd=FALSE}, the raw U criterion is globally optimized over the simplex by enumerating all faces. V matrices are already positive semidefinite and
 are used directly without projection. The raw matrix, raw candidate losses,
 projection adjustment and whether projection was applied are retained. Penalty
 selection uses the raw scalar selected statistic, without truncating negative

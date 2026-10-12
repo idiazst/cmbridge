@@ -150,13 +150,15 @@
   out / sum(out)
 }
 
-.simplex_qp <- function(G, control = list()) {
+.simplex_qp <- function(G, control = list(), indefinite = FALSE) {
   ctrl <- .merge_control(list(tol = 1e-8, max_iter = 50000L), control)
   if (length(ctrl$tol) != 1L || !is.finite(ctrl$tol) || ctrl$tol <= 0) {
     stop("solver tol must be positive and finite.", call. = FALSE)
   }
   max_iter <- .ensemble_integer(ctrl$max_iter, "max_iter")
   p <- nrow(G)
+  if (indefinite && p > 10L)
+    stop("Unprojected ensemble optimization supports at most 10 active candidates.", call. = FALSE)
   scale <- max(abs(G))
   if (scale == 0) return(list(weights = rep(1 / p, p), kkt_gap = 0, iterations = 0L))
   A <- (G + t(G)) / (2 * scale)
@@ -187,6 +189,8 @@
     }
     if (gap(w) <= ctrl$tol) return(list(weights = w, kkt_gap = gap(w), iterations = 0L))
   }
+  if (indefinite)
+    stop("Unprojected global simplex optimization failed its numerical optimality check.", call. = FALSE)
   L <- max(eigen(A, symmetric = TRUE, only.values = TRUE)$values)
   y <- w
   acceleration <- 1
@@ -224,8 +228,11 @@
 }
 
 .fit_ensemble <- function(B, V, M, phi, type, library, n_folds, fold_id,
-                          seed, kernel, kernel_control, solver_control, statistic = "u") {
+                          seed, kernel, kernel_control, solver_control, statistic = "u",
+                          project_psd = TRUE) {
   statistic <- match.arg(statistic, c("u", "v"))
+  if (!is.logical(project_psd) || length(project_psd) != 1L || is.na(project_psd))
+    stop("project_psd must be TRUE or FALSE.", call. = FALSE)
   had_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   if (had_seed) saved_seed <- get(".Random.seed", envir = .GlobalEnv)
   on.exit({
@@ -437,12 +444,12 @@
   G <- Reduce(`+`, Map(function(g, count) g * count / sum(counts), grams, counts))
   dimnames(G) <- list(active, active)
   raw_gram <- G
-  projection <- if (statistic == "u") .project_gram_psd(raw_gram) else
+  projection <- if (statistic == "u" && project_psd) .project_gram_psd(raw_gram) else
     list(gram = raw_gram, eigenvalues = eigen(raw_gram, symmetric = TRUE, only.values = TRUE)$values,
       removed_negative_eigenvalues = 0L, adjustment_norm = 0)
-  projection$applied <- statistic == "u"
+  projection$applied <- statistic == "u" && project_psd
   G <- projection$gram
-  solution <- .simplex_qp(G, solver_control)
+  solution <- .simplex_qp(G, solver_control, indefinite = statistic == "u" && !project_psd)
   active_weights <- stats::setNames(solution$weights, active)
   weights <- stats::setNames(rep(0, p), names(library)); weights[active] <- active_weights
   raw_losses <- projected_losses <- stats::setNames(rep(Inf, p), names(library))
@@ -461,7 +468,8 @@
   scoring_kernel <- .ensemble_kernel(Z[training_index, , drop = FALSE], kernel, kernel_control, seed, statistic)
   training_loss <- .ensemble_gram(matrix(residual, ncol = 1L), Z[training_index, , drop = FALSE], scoring_kernel)[1, 1]
   out <- list(
-    method = "ensemble", type = type, statistic = statistic, n = n, n_scored = sum(counts),
+    method = "ensemble", type = type, statistic = statistic, project_psd = project_psd,
+    n = n, n_scored = sum(counts),
     library = library, candidates = final_fits, weights = weights,
     active_candidates = active, candidate_failures = failures,
     fold_id = folds, fold_gram = grams, fold_n_scored = counts, gram = G,
@@ -488,28 +496,32 @@
 #' @param statistic Validation and penalty-CV statistic: "u" excludes self-products
 #'   and projects the ensemble Gram to PSD; "v" retains self-products and uses its
 #'   already-PSD Gram directly. Defaults to "u".
+#' @param project_psd Whether to project the U-statistic ensemble Gram to PSD.
+#'   FALSE uses global enumeration of simplex faces, with at most 10 active
+#'   candidates. This changes ensemble weights only, never candidate penalty CV.
 #' @export
 fit_bridge_ensemble <- function(B, V, M, library = NULL, n_folds = 5L,
                                 fold_id = NULL, seed = 1L,
                                 kernel = c("rbf", "linear", "cell"),
                                 kernel_control = list(), solver_control = list(),
-                                statistic = c("u", "v")) {
+                                statistic = c("u", "v"), project_psd = TRUE) {
   fit <- .fit_ensemble(B, V, M, NULL, "bridge", library, n_folds, fold_id,
-                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
+                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic), project_psd)
   fit$call <- match.call()
   fit
 }
 
 #' Cross-validated ensemble for an adjoint equation
 #' @param statistic Validation and penalty-CV statistic; see fit_bridge_ensemble.
+#' @param project_psd Whether to project the U ensemble Gram; see fit_bridge_ensemble.
 #' @export
 fit_adjoint_ensemble <- function(B, V, M, phi, library = NULL, n_folds = 5L,
                                  fold_id = NULL, seed = 1L,
                                  kernel = c("rbf", "linear", "cell"),
                                  kernel_control = list(), solver_control = list(),
-                                 statistic = c("u", "v")) {
+                                 statistic = c("u", "v"), project_psd = TRUE) {
   fit <- .fit_ensemble(B, V, M, phi, "adjoint", library, n_folds, fold_id,
-                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
+                       seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic), project_psd)
   fit$call <- match.call()
   fit
 }
