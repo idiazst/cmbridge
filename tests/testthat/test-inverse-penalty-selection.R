@@ -116,3 +116,20 @@ test_that("selected fits or explicit failures preserve positive paths and RNG", 
     }
   }
 })
+
+
+test_that("pure-cell bridge geometry respects function versus link regularization", {
+  set.seed(615)
+  x <- matrix(rbinom(240, 1, .5), ncol = 1)
+  z <- matrix((x[, 1] + rbinom(240, 1, .45)) %% 3L, ncol = 1)
+  d <- rbinom(240, 1, .55 + .15 * x[, 1]); y <- rep(1, 240)
+  x[d == 0, ] <- NA
+  for (penalty in c("function", "link")) {
+    fit <- fit_cm(y, d, x, z, "sieve_md", list(target_basis = "cell", instrument_basis = "cell",
+      link = "inverse_logit", penalty_on = penalty, lambda = .01))
+    geometry <- cmbridge:::.inverse_geometry(fit, y, d, x, z)
+    expect_equal(geometry$native_loss, fit$moment_loss, tolerance = 1e-8)
+    expect_equal(geometry$values, fit$fitted[d != 0], tolerance = 1e-8)
+    expect_true(is.finite(cmbridge:::.inverse_ridge_df(geometry, fit, d)))
+  }
+})

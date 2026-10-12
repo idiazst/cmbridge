@@ -43,6 +43,7 @@
   if (!any(use)) stop("The empirical critic has zero rank.")
   L <- crossprod(el$vectors[, use, drop = FALSE], L)
   cell <- model$method == "sieve_md" && identical(model$target_spec$type, "cell") &&
+    (model$tuning$link == "identity" || model$tuning$penalty_on == "function") &&
     model$target_design_cols == length(model$target_spec$levels) + 1L
   if (model$method == "pmmr") {
     H <- .nystrom_apply(.scale_apply(x[active, , drop = FALSE], model$target_scale), model$target_nystrom)
@@ -77,10 +78,14 @@
   J <- L[, active, drop = FALSE] %*% (d[active] * first * H)
   S <- crossprod(J)
   if (cell && link != "identity") {
-    penalty_values <- as.numeric(P %*% values)
-    penalty_hessian <- crossprod(first * H, P %*% (first * H)) +
-      crossprod(H, second * penalty_values * H)
-    seminorm2 <- as.numeric(crossprod(values, P %*% values))
+    cell_values <- .cm_link(theta, link)
+    cell_first <- .cm_link_derivative(theta, link)
+    cell_second <- exp(if (link == "inverse_logit") -theta else theta)
+    penalty_values <- as.numeric(P %*% cell_values)
+    derivative <- diag(cell_first, length(cell_first))
+    penalty_hessian <- derivative %*% P %*% derivative +
+      diag(cell_second * penalty_values, length(cell_second))
+    seminorm2 <- as.numeric(crossprod(cell_values, P %*% cell_values))
   } else {
     penalty_hessian <- P
     seminorm2 <- as.numeric(crossprod(theta, P %*% theta))
