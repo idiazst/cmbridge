@@ -21,6 +21,13 @@ fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
 \item{statistic}{\code{"u"} (default) or \code{"v"}, for validation, candidate penalty CV, and moment losses. See \code{fit_bridge_ensemble} for projection and bias details.}
 }
 \description{Fits a convex ensemble for \eqn{E[M\{\lambda(B)-\phi(V)\}\mid V]=0}.}
-\details{The equivalent complete-case conditional moment is scored only on validation rows with M=1, using residuals \eqn{\lambda(B)-\phi(V)}. Every candidate in a fold receives the same training loading; the loading callback allows its fit to exclude that fold. Fold Gram matrices are weighted by their complete-case counts. Candidates are finally refit with one common full-training-sample loading. All fitting and weight selection must take place inside an outer training sample when this ensemble is used in a cross-fitted causal estimator.}
+\details{The equivalent complete-case conditional moment is scored only on validation rows with M=1, using residuals \eqn{\lambda(B)-\phi(V)}. Every candidate in a fold receives the same training loading; the loading callback allows its fit to exclude that fold. Fold Gram matrices are weighted by their complete-case counts. Candidates are finally refit with one common full-training-sample loading. All fitting and weight selection must take place inside an outer training sample when this ensemble is used in a cross-fitted causal estimator.
+Library members may set \code{control$penalty_selection} to
+\code{"gcv"}, \code{"lcurve"}, or \code{"quasiopt"}, with
+\code{penalty_selection_control} for path options. This replaces only
+that member's penalty selection. Each cross-validation fit selects on its
+own training rows; the final fit selects on all supplied training rows.
+The ensemble RKHS score and its U/V option are unchanged.
+See \code{\link{select_cm_penalty}}.}
 \value{A \code{cmbridge_ensemble}; see \code{fit_bridge_ensemble}. Cross-validated predictions and residuals are NA when M=0. \code{complete_case_index} records the scored observations.}
 \seealso{\code{\link{fit_adjoint}}, \code{\link{fit_bridge_ensemble}}}

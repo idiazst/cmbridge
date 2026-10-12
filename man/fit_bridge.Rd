@@ -10,4 +10,8 @@
 \item{control}{Method-specific control list.}
 }
 \description{Fits beta satisfying E[M beta(V)-1 given B]=0.}
+\details{Optional \code{control$penalty_selection} chooses \code{"gcv"},
+\code{"lcurve"}, or \code{"quasiopt"}; \code{penalty_selection_control}
+passes path controls to \code{\link{select_cm_penalty}}. The choice is made
+using only rows supplied to this fit.}
 \value{An object of class \code{cmbridge_fit}.}

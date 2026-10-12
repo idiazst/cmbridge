@@ -11,7 +11,9 @@
 #' @param method One of "sieve_md", "landweber", "pmmr", or "saturated_l1".
 #' @param control Method-specific control list. The cell sieve, Landweber and PMMR support
 #'   positive links with unrestricted real coefficients. Optional lower and upper
-#'   bounds must be infinite; post-fit clipping is not supported.
+#'   bounds must be infinite; post-fit clipping is not supported. Optional
+#'   penalty_selection selects gcv, lcurve or quasiopt;
+#'   penalty_selection_control supplies path controls to select_cm_penalty.
 #' @return An object of class cmbridge_fit.
 #' @export
 fit_cm <- function(response, diagonal = NULL, target, instrument,
@@ -36,6 +38,13 @@ fit_cm <- function(response, diagonal = NULL, target, instrument,
   }
   if (is.finite(lower) || is.finite(upper)) {
     stop("Post-fit prediction bounds are not supported. Use a supported model parameterization instead of post-fit bounds.", call. = FALSE)
+  }
+  if (!is.null(control$penalty_selection)) {
+    out <- select_cm_penalty(y, d, x, z, method, control,
+      rule = control$penalty_selection,
+      selection_control = if (is.null(control$penalty_selection_control)) list() else control$penalty_selection_control)
+    out$call <- match.call()
+    return(out)
   }
   core <- switch(method,
     sieve_md = .fit_sieve_md(y, d, x, z, control),

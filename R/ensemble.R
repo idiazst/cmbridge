@@ -276,7 +276,8 @@
         else fit_adjoint(B[rows, , drop = FALSE], V[rows, , drop = FALSE],
           M[rows], response, candidate$method, control)
       }
-      if (is.null(scales)) return(fit_at(index, loading, candidate$control))
+      if (!is.null(candidate$control$penalty_selection) || is.null(scales))
+        return(fit_at(index, loading, candidate$control))
       if (!candidate$method %in% c("sieve_md", "landweber", "saturated_l1") || !length(scales) ||
           any(!is.finite(scales)) || any(scales <= 0)) {
         stop("Positive penalty_scales are supported for sieve_md, landweber and saturated_l1 candidates.")

@@ -69,5 +69,8 @@ The constant is multiplied by D. Controls are \code{penalty} (0.001),
 \code{lower}/\code{upper} (infinite), \code{tolerance} (1e-8), and
 \code{max_iter} (1000000). Unseen target cells use the fitted constant.
 This categorical learner assumes fixed finite support; numeric values define
-distinct joint cells. Solver failure is an error.}
+distinct joint cells. Solver failure is an error.
+Optional \code{control$penalty_selection} selects \code{"gcv"}, \code{"lcurve"}, or
+\code{"quasiopt"}; \code{penalty_selection_control} passes path controls to
+\code{\link{select_cm_penalty}}. The choice uses only supplied training rows.}
 \value{An object of class \code{cmbridge_fit}.}

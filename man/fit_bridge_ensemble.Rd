@@ -74,6 +74,13 @@ Each refitted candidate retains its selected \code{penalty_cv},
 the same person splits used by its other learners. Penalties are chosen
 separately inside every ensemble training fold and again for the final refit.
 
-}
+
+Library members may set \code{control$penalty_selection} to
+\code{"gcv"}, \code{"lcurve"}, or \code{"quasiopt"}, with
+\code{penalty_selection_control} for path options. This replaces only
+that member's penalty selection. Each cross-validation fit selects on its
+own training rows; the final fit selects on all supplied training rows.
+The ensemble RKHS score and its U/V option are unchanged.
+See \code{\link{select_cm_penalty}}.}
 \value{A \code{cmbridge_ensemble} inheriting from \code{cmbridge_fit}. Fields include \code{raw_gram}, \code{psd_projection}, \code{candidate_raw_cv_loss}, \code{raw_cv_loss}, \code{fold_penalty_cv}, \code{fold_penalty_boundary}, \code{weights}, refitted \code{candidates}, \code{library}, \code{fold_id}, \code{gram}, \code{fold_gram}, \code{fold_n_scored}, \code{cv_predictions}, \code{cv_residuals}, \code{candidate_cv_loss}, \code{cv_loss}, and solver diagnostics. Prediction and \code{moment_loss} are supported. Cross-validated predictions on unobserved V are NA. The stored training moment loss uses a kernel learned from the full supplied training sample.}
 \seealso{\code{\link{fit_bridge}}, \code{\link{fit_adjoint_ensemble}}, \code{\link{moment_loss}}}
