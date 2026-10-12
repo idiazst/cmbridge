@@ -15,8 +15,11 @@
 #' @return An object of class cmbridge_fit.
 #' @export
 fit_cm <- function(response, diagonal = NULL, target, instrument,
-                   method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
+                   method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list(),
+                   selection = c("fixed", "robins", "syrgkanis"),
+                   selection_control = list(), fold_id = NULL, seed = 1L) {
   method <- match.arg(method)
+  selection <- match.arg(selection)
   y <- as.numeric(response)
   d <- if (is.null(diagonal)) rep(1, length(y)) else as.numeric(diagonal)
   x <- .as_matrix(target, "target")
@@ -36,6 +39,25 @@ fit_cm <- function(response, diagonal = NULL, target, instrument,
   }
   if (is.finite(lower) || is.finite(upper)) {
     stop("Post-fit prediction bounds are not supported. Use a supported model parameterization instead of post-fit bounds.", call. = FALSE)
+  }
+  if (selection != "fixed") {
+    ctrl <- .adaptive_control(selection_control)
+    ids <- if (is.null(control$penalty_ids)) seq_len(n) else control$penalty_ids
+    if (length(ids) != n) stop("penalty_ids must match the input rows.")
+    if (!is.null(fold_id)) {
+      labels <- .ensemble_folds(as.numeric(d != 0), 3L, fold_id, seed)
+      all_ids <- as.character(ids)
+      control$penalty_folds <- function(current_ids) labels[match(as.character(current_ids), all_ids)]
+    }
+    saved <- if (exists(".Random.seed", .GlobalEnv)) get(".Random.seed", .GlobalEnv) else NULL
+    on.exit(if (is.null(saved)) {if (exists(".Random.seed", .GlobalEnv)) rm(".Random.seed", envir = .GlobalEnv)}
+      else assign(".Random.seed", saved, .GlobalEnv), add = TRUE)
+    set.seed(seed)
+    provider <- function(train, validation) list(train = y[train], validation = y[validation])
+    out <- .adaptive_tune(seq_len(n), ids, list(method = method, control = control),
+      y, d, x, z, provider, selection, ctrl, length(unique(y)) == 1L)
+    out$call <- match.call()
+    return(out)
   }
   core <- switch(method,
     sieve_md = .fit_sieve_md(y, d, x, z, control),
@@ -69,10 +91,13 @@ fit_cm <- function(response, diagonal = NULL, target, instrument,
 #' @param control Method-specific control list.
 #' @return A cmbridge_fit object.
 #' @export
-fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
+fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list(),
+                       selection = c("fixed", "robins", "syrgkanis"), selection_control = list(),
+                       fold_id = NULL, seed = 1L) {
   M <- as.numeric(M)
   if (anyNA(M) || any(M < 0) || any(M > 1)) stop("M must lie in [0,1].", call. = FALSE)
-  fit <- fit_cm(rep(1, length(M)), M, V, B, method = match.arg(method), control = control)
+  fit <- fit_cm(rep(1, length(M)), M, V, B, method = match.arg(method), control = control,
+    selection = match.arg(selection), selection_control = selection_control, fold_id = fold_id, seed = seed)
   fit$type <- "bridge"
   fit
 }
@@ -91,7 +116,9 @@ fit_bridge <- function(B, V, M, method = c("sieve_md", "landweber", "pmmr", "sat
 #' @param control Method-specific control list.
 #' @return A cmbridge_fit object.
 #' @export
-fit_adjoint <- function(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list()) {
+fit_adjoint <- function(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list(),
+                        selection = c("fixed", "robins", "syrgkanis"), selection_control = list(),
+                        fold_id = NULL, seed = 1L) {
   B <- .as_matrix(B, "B")
   V <- .as_matrix(V, "V")
   M <- as.numeric(M)
@@ -105,8 +132,13 @@ fit_adjoint <- function(B, V, M, phi, method = c("sieve_md", "landweber", "pmmr"
   if (any(!is.finite(B[keep, , drop = FALSE])) || any(!is.finite(V[keep, , drop = FALSE]))) {
     stop("B and V must be finite on complete cases.", call. = FALSE)
   }
+  selection <- match.arg(selection)
+  if (selection != "fixed" && is.null(control$penalty_ids)) control$penalty_ids <- seq_along(M)
+  if (!is.null(control$penalty_ids)) control$penalty_ids <- control$penalty_ids[keep]
   fit <- fit_cm(phi[keep], rep(1, sum(keep)), B[keep, , drop = FALSE],
-                V[keep, , drop = FALSE], method = match.arg(method), control = control)
+                V[keep, , drop = FALSE], method = match.arg(method), control = control,
+                selection = match.arg(selection), selection_control = selection_control,
+                fold_id = if (is.null(fold_id)) NULL else fold_id[keep], seed = seed)
   fit$type <- "adjoint"
   fit$complete_case_index <- which(keep)
   fit

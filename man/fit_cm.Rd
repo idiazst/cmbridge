@@ -2,7 +2,9 @@
 \alias{fit_cm}
 \title{Fit a conditional-moment function}
 \usage{fit_cm(response, diagonal = NULL, target, instrument,
-  method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list())}
+  method = c("sieve_md", "landweber", "pmmr", "saturated_l1"), control = list(),
+  selection = c("fixed", "robins", "syrgkanis"), selection_control = list(),
+  fold_id = NULL, seed = 1L)}
 \arguments{
 \item{response}{Numeric response vector.}
 \item{diagonal}{Numeric multiplicative/diagonal vector. Defaults to one.}
@@ -10,6 +12,10 @@
 \item{instrument}{Variables defining the conditional moment.}
 \item{method}{Estimation method.}
 \item{control}{Method-specific control list. The default identity link is unbounded. Finite \code{lower} or \code{upper} values raise an error; use the link controls below for a model parameterization inside the optimization. Post-fit clipping is not provided.}
+\item{selection}{Keep fixed controls, or opt into the experimental Robins or Syrgkanis selection adaptation. Supports sieve, Landweber and PMMR.}
+\item{selection_control}{Projection and discrepancy controls; see \code{fit_bridge_ensemble}.}
+\item{fold_id}{Optional person-consistent training-only selection folds.}
+\item{seed}{Nonnegative seed; the calling random state is restored.}
 }
 \description{Fits h in E[Y-D h(X) given Z]=0 using a common interface.}
 \details{For \code{sieve_md} and \code{landweber}, \code{target_basis} and
