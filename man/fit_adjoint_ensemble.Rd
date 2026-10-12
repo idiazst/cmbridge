@@ -4,8 +4,7 @@
 \usage{
 fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
   fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
-  kernel_control = list(), solver_control = list(), statistic = c("u", "v"),
-  selection = c("rkhs", "robins", "syrgkanis"), selection_control = list())
+  kernel_control = list(), solver_control = list(), statistic = c("u", "v"))
 }
 \arguments{
 \item{B}{Numeric vector or matrix indexing the adjoint function.}
@@ -20,8 +19,6 @@ fit_adjoint_ensemble(B, V, M, phi, library = NULL, n_folds = 5L,
 \item{kernel_control}{Scoring-kernel controls; see \code{fit_bridge_ensemble}.}
 \item{solver_control}{Simplex optimization controls; see \code{fit_bridge_ensemble}.}
 \item{statistic}{\code{"u"} (default) or \code{"v"}, for validation, candidate penalty CV, and moment losses. See \code{fit_bridge_ensemble} for projection and bias details.}
-\item{selection}{RKHS, experimental Robins, or experimental Syrgkanis adaptation; see \code{fit_bridge_ensemble}.}
-\item{selection_control}{Adaptive selection controls; see \code{fit_bridge_ensemble}.}
 }
 \description{Fits a convex ensemble for \eqn{E[M\{\lambda(B)-\phi(V)\}\mid V]=0}.}
 \details{The equivalent complete-case conditional moment is scored only on validation rows with M=1, using residuals \eqn{\lambda(B)-\phi(V)}. Every candidate in a fold receives the same training loading; the loading callback allows its fit to exclude that fold. Fold Gram matrices are weighted by their complete-case counts. Candidates are finally refit with one common full-training-sample loading. All fitting and weight selection must take place inside an outer training sample when this ensemble is used in a cross-fitted causal estimator.}

@@ -4,8 +4,7 @@
 \usage{
 fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
   fold_id = NULL, seed = 1L, kernel = c("rbf", "linear", "cell"),
-  kernel_control = list(), solver_control = list(), statistic = c("u", "v"),
-  selection = c("rkhs", "robins", "syrgkanis"), selection_control = list())
+  kernel_control = list(), solver_control = list(), statistic = c("u", "v"))
 }
 \arguments{
 \item{B}{Numeric vector or matrix indexing the bridge conditional moment.}
@@ -19,44 +18,9 @@ fit_bridge_ensemble(B, V, M, library = NULL, n_folds = 5L,
 \item{kernel_control}{List with \code{scale} (default TRUE), \code{bandwidth} (default training-sample median distance), \code{approximation} (\code{"nystrom"}, default, or \code{"exact"}), \code{n_centers} (100), \code{block_size} (512), optional \code{seed}, \code{nystrom_ridge} (1e-10), and \code{nystrom_tol} (1e-10). Gaussian centers, scaling, and bandwidth are learned exclusively in each inner training sample. Increase the rank as needed; a fixed low-rank kernel need not detect every conditional-moment violation. Exact Gaussian scoring uses blocks to avoid an n-by-n stored kernel, but retains quadratic computation.}
 \item{solver_control}{List with \code{tol} (1e-8) and \code{max_iter} (50000) for simplex quadratic optimization. The tolerance applies after scaling the Gram matrix by its largest absolute entry.}
 \item{statistic}{\code{"u"} (default) excludes self-products; \code{"v"} retains them. Applies to ensemble validation, candidate penalty CV, and training/new-data moment losses.}
-\item{selection}{Default RKHS stacking, or experimental \code{"robins"} or \code{"syrgkanis"} selection. The latter tune all three native methods, including PMMR ridge and Landweber stopping iterations.}
-\item{selection_control}{Controls for adaptive selection: \code{projection_basis} (cell_linear), \code{projection_degree} (1), \code{projection_df} (6), positive \code{projection_ridges} (15 log-spaced values from 1e-6 to 10), \code{critic_ridge} (1e-6), \code{bootstrap_draws} (199), \code{noise_probability} (0.95), \code{iteration_grid} (21 log-spaced integer values from 2 to 2000), \code{max_iterations} (100000), \code{max_extensions} (16), \code{extension_factor} (10), \code{extension_points} (4), and \code{limit_tolerance} (1e-8).}
 }
 \description{Combines candidates to solve \eqn{E[M\beta(V)-1\mid B]=0}, using the common RKHS maximum-moment validation criterion of Section 5.3.2 of the methodology paper.}
-\details{The experimental adapters retain the native learner objectives and links.
-They are selection principles, not complete reimplementations of the cited
-papers' regularized estimators; their theoretical guarantees are not asserted.
-Robins scoring uses separate person samples for candidate fitting, conditional
-projection training and validation. Its score is twice the product of the
-estimated conditional residual and the observed residual, minus the squared
-estimated conditional residual, omitting a common constant. Projection ridge
-is selected by ordinary leave-one-out prediction loss, with an extendable
-positive grid. The known bridge right-hand side is exactly one. Adjoint
-conditional loading is estimated in the projection sample. Raw indefinite
-Robins Grams are minimized by face enumeration for at most ten candidates;
-they are not projected to PSD.
-
-Syrgkanis penalty selection uses the actual full-training fit and its
-covariance-stabilized empirical critic. Its threshold is calibrated for that
-sample size, rather than transported from smaller internal fits. A common simultaneous Gaussian
-multiplier-bootstrap envelope over the entire evaluated path calibrates the
-noise threshold. The largest admissible regularization is selected. An
-unbracketed threshold extends the grid. A converged most-regularized limit,
-or Landweber's natural one-iteration endpoint, can be accepted and is recorded
-explicitly; this is not acceptance of a boundary CV minimum. Ensemble weights
-minimize the empirical second moment of the fitted function subject to the
-held-out discrepancy threshold. No feasible mixture raises an error.
-
-Adaptive selections use their projection basis instead of kernel/statistic
-for selection. Their training and new-data \code{moment_loss} remains a
-separate RBF U-statistic diagnostic. Supplied kernel/statistic parameters only
-control the default RKHS selection pathway. All projection, basis, threshold
-and penalty fitting remains inside the supplied training sample. Return
-values record disjoint selection samples, projection tuning, grids, threshold
-events and ensemble constraint status. The adjoint loading callback is also
-used for adaptive training splits.
-
-Every kernel supports U and V scoring: cell, Gaussian, and linear.
+\details{Every kernel supports U and V scoring: cell, Gaussian, and linear.
 Penalty CV uses the same statistic, kernel and training-only kernel specification as
 ensemble selection. Failed penalty trials are recorded and never selected.
 Candidates which fail tuning, fitting, or validation are excluded across all

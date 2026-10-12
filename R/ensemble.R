@@ -493,18 +493,7 @@ fit_bridge_ensemble <- function(B, V, M, library = NULL, n_folds = 5L,
                                 fold_id = NULL, seed = 1L,
                                 kernel = c("rbf", "linear", "cell"),
                                 kernel_control = list(), solver_control = list(),
-                                statistic = c("u", "v"), selection = c("rkhs", "robins", "syrgkanis"),
-                                selection_control = list()) {
-  selection <- match.arg(selection)
-  if (selection != "rkhs") {
-    supplied <- .ensemble_library(library)
-    ids <- supplied[[1L]]$control$penalty_ids
-    if (is.null(ids)) ids <- seq_along(M)
-    fit <- .fit_adaptive_ensemble(rep(1, length(M)), M, V, B, supplied, fold_id,
-      n_folds, seed, selection, selection_control, solver_control, ids = ids, known_response = TRUE)
-    fit$type <- "bridge"; fit$call <- match.call()
-    return(fit)
-  }
+                                statistic = c("u", "v")) {
   fit <- .fit_ensemble(B, V, M, NULL, "bridge", library, n_folds, fold_id,
                        seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
   fit$call <- match.call()
@@ -518,23 +507,7 @@ fit_adjoint_ensemble <- function(B, V, M, phi, library = NULL, n_folds = 5L,
                                  fold_id = NULL, seed = 1L,
                                  kernel = c("rbf", "linear", "cell"),
                                  kernel_control = list(), solver_control = list(),
-                                 statistic = c("u", "v"), selection = c("rkhs", "robins", "syrgkanis"),
-                                 selection_control = list()) {
-  selection <- match.arg(selection)
-  if (selection != "rkhs") {
-    B <- .as_matrix(B); V <- .as_matrix(V)
-    keep <- which(M == 1); supplied <- .ensemble_library(library)
-    ids <- supplied[[1L]]$control$penalty_ids
-    if (is.null(ids)) ids <- seq_along(M)
-    provider <- function(train, validation) .ensemble_loading(phi, keep[train], keep[validation], length(M))
-    y <- provider(seq_along(keep), integer(0))$train
-    fit <- .fit_adaptive_ensemble(y, rep(1, length(keep)), B[keep, , drop = FALSE],
-      V[keep, , drop = FALSE], supplied, if (is.null(fold_id)) NULL else fold_id[keep],
-      n_folds, seed, selection, selection_control, solver_control, ids = ids[keep], response = provider)
-    fit$type <- "adjoint"; fit$complete_case_index <- keep; fit$selection_row_index <- keep
-    fit$call <- match.call()
-    return(fit)
-  }
+                                 statistic = c("u", "v")) {
   fit <- .fit_ensemble(B, V, M, phi, "adjoint", library, n_folds, fold_id,
                        seed, match.arg(kernel), kernel_control, solver_control, match.arg(statistic))
   fit$call <- match.call()
@@ -545,7 +518,6 @@ fit_adjoint_ensemble <- function(B, V, M, phi, library = NULL, n_folds = 5L,
 print.cmbridge_ensemble <- function(x, ...) {
   cat("Cross-validated conditional-moment ensemble\n")
   cat("  type: ", x$type, "\n", sep = "")
-  if (!is.null(x$selection)) cat("  selection: ", x$selection, "\n", sep = "")
   cat("  statistic: ", if (is.null(x$statistic)) "u" else x$statistic, "\n", sep = "")
   cat("  n: ", x$n, "; folds: ", max(x$fold_id), "\n", sep = "")
   cat("  cross-validated moment loss: ", format(x$cv_loss, digits = 5), "\n", sep = "")
