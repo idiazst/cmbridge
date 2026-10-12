@@ -159,6 +159,7 @@
   p <- nrow(G)
   if (indefinite && p > 10L)
     stop("Unprojected ensemble optimization supports at most 10 active candidates.", call. = FALSE)
+  if (indefinite) return(.simplex_raw_faces(G, ctrl))
   scale <- max(abs(G))
   if (scale == 0) return(list(weights = rep(1 / p, p), kkt_gap = 0, iterations = 0L))
   A <- (G + t(G)) / (2 * scale)
@@ -210,6 +211,43 @@
     acceleration <- next_acceleration
   }
   stop("simplex optimization did not converge; increase max_iter.", call. = FALSE)
+}
+
+# Balance each face separately. A rejected, enormous candidate must not erase
+# the curvature among the remaining candidates through a global rescaling.
+.simplex_raw_faces <- function(G, control) {
+  G <- (G + t(G)) / 2
+  p <- nrow(G); scale <- max(abs(G))
+  if (scale == 0) return(list(weights = rep(1 / p, p), kkt_gap = 0, iterations = 0L))
+  quadratic <- function(w) as.numeric(crossprod(w, G %*% w))
+  best <- rep(0, p); best[which.min(diag(G))] <- 1
+  value <- quadratic(best)
+  uniform <- rep(1 / p, p)
+  if (quadratic(uniform) < value) {best <- uniform; value <- quadratic(best)}
+  for (mask in seq_len(2^p - 1L)) {
+    ii <- which(as.logical(intToBits(mask)[seq_len(p)])); q <- length(ii)
+    B <- G[ii, ii, drop = FALSE]
+    d <- sqrt(abs(diag(B)))
+    for (j in which(d == 0)) d[j] <- sqrt(max(abs(B[j, ])))
+    d[d == 0] <- 1
+    A <- sweep(sweep(B, 1L, d, "/"), 2L, d, "/")
+    if (!all(is.finite(A))) next
+    magnitude <- max(abs(A)); if (magnitude == 0) next
+    A <- A / magnitude
+    constraint <- min(d) / d
+    lhs <- rbind(cbind(A, constraint), c(constraint, 0))
+    sol <- tryCatch(solve(lhs, c(rep(0, q), 1)), error = function(e) NULL)
+    if (is.null(sol) || any(!is.finite(sol)) || any(sol[seq_len(q)] < -control$tol)) next
+    w <- numeric(p); w[ii] <- constraint * pmax(sol[seq_len(q)], 0)
+    w <- w / sum(w)
+    candidate <- quadratic(w)
+    if (is.finite(candidate) && candidate < value) {best <- w; value <- candidate}
+  }
+  A <- G / scale; gradient <- as.numeric(A %*% best)
+  gap <- max(0, sum(best * gradient) - min(gradient))
+  if (!is.finite(gap) || gap > control$tol)
+    stop("Unprojected global simplex optimization failed its numerical optimality check.", call. = FALSE)
+  list(weights = best, kkt_gap = gap, iterations = 0L)
 }
 
 .ensemble_loading <- function(phi, train, validation, n) {

@@ -46,3 +46,33 @@ test_that("PSD switch preserves fitted candidates, penalty CV and raw scores", {
   }
   expect_error(fit_bridge_ensemble(d$B, d$Vobs, d$M, lib, project_psd = NA), "TRUE or FALSE")
 })
+
+test_that("an enormous unused candidate cannot hide a better mixture on another face", {
+  for (large in c(1e8, 1e40, 1e100)) {
+    G <- matrix(0, 3, 3); G[1, 1] <- large
+    G[2:3, 2:3] <- matrix(c(-.027, -.04, -.04, -.02), 2)
+    fraction <- (.04 - .02) / (2 * .04 - .027 - .02)
+    expected <- c(0, fraction, 1 - fraction)
+    fit <- cmbridge:::.simplex_qp(G, indefinite = TRUE)
+    expect_equal(fit$weights, expected, tolerance = 1e-12)
+    expect_lte(drop(crossprod(fit$weights, G %*% fit$weights)),
+      drop(crossprod(expected, G %*% expected)) + 1e-14)
+  }
+  # A tiny positive weight can matter when a candidate has enormous residuals.
+  D <- diag(c(1e20, 1, 1)); A <- matrix(c(1, -.2, -.1, -.2, 1, .1, -.1, .1, 1), 3)
+  G <- D %*% A %*% D
+  fit <- cmbridge:::.simplex_qp(G, indefinite = TRUE)
+  # Independently profile out the first coordinate and solve the remaining face.
+  profile <- function(v) {
+    b <- c(0, v, 1 - v); linear <- drop(G[1, ] %*% b) - drop(b %*% G %*% b)
+    direction <- c(1, -v, -(1-v))
+    curvature <- drop(direction %*% G %*% direction)
+    u <- min(1, max(0, -linear / curvature))
+    w <- c(u, (1-u)*v, (1-u)*(1-v))
+    drop(w %*% G %*% w)
+  }
+  reference <- optimize(profile, c(0, 1), tol = 1e-12)
+  expect_gt(fit$weights[1], 0)
+  expect_lt(fit$weights[1], 1e-18)
+  expect_equal(drop(fit$weights %*% G %*% fit$weights), reference$objective, tolerance = 1e-12)
+})
