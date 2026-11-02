@@ -215,12 +215,46 @@
       loss = problem$fn(par), coefficient_gradient = diagnostics[1L], function_gradient = diagnostics[2L]))
     fits[[length(fits) + 1L]] <<- list(par = par, optimizer = fit, diagnostics = diagnostics)
   }
+  # Diagnose a flat link with a short unrestricted pass before spending the
+  # full iteration budget on a better finite starting point.
   fit <- stats::optim(start, problem$fn, problem$gr, method = "BFGS",
-                       control = list(maxit = max_iter, reltol = tolerance))
+                       control = list(maxit = min(200L, max_iter), reltol = tolerance))
   append_fit("BFGS", fit)
   valid <- function(fit) all(is.finite(fit$par)) &&
     all(is.finite(fit$diagnostics)) && max(fit$diagnostics) <= threshold
-  if (!valid(fits[[1L]])) {
+  if (!valid(fits[[1L]]) && length(b) <= 100L && all(is.finite(fits[[1L]]$par))) {
+    # Coordinate-wise finite starting values revive flat link directions.
+    # Each conditional quadratic supplies a starting value for an unrestricted
+    # real link coefficient. Near a limiting value, use the same finite
+    # tolerance-based restart as below. These are never coefficient bounds or
+    # clipped fitted values: BFGS still optimizes the original objective over
+    # all real coefficients, with the original acceptance checks unchanged.
+    candidate <- fits[[1L]]$par
+    for (pass in seq_len(min(200L, max_iter))) {
+      for (j in seq_along(candidate)) {
+        if (!is.finite(S[j, j]) || S[j, j] <= 0) next
+        values <- problem$value(candidate)
+        proposed <- values[j] - (problem$multiply(values)[j] - b[j]) / S[j, j]
+        if (!is.finite(proposed)) next
+        if (proposed > problem$offset) candidate[j] <-
+          problem$sign * log(proposed - problem$offset)
+        else if (exp(problem$sign * candidate[j]) > threshold / 10)
+          candidate[j] <- problem$sign * log(threshold / 10)
+      }
+      if (all(is.finite(candidate)) && max(assess(candidate)) <= threshold) break
+    }
+    candidate_loss <- problem$fn(candidate)
+    initial_fit_loss <- problem$fn(fits[[1L]]$par)
+    if (is.finite(candidate_loss) && candidate_loss <= initial_fit_loss +
+        8 * .Machine$double.eps * max(1, abs(initial_fit_loss))) {
+      initialized <- valid(list(par = candidate, diagnostics = assess(candidate)))
+      fit <- stats::optim(candidate, problem$fn, problem$gr, method = "BFGS",
+        control = list(maxit = if (initialized) min(200L, max_iter) else max_iter,
+                       reltol = tolerance))
+      append_fit("coordinate-initialized BFGS", fit)
+    }
+  }
+  if (!any(vapply(fits, valid, logical(1L)))) {
     fit <- stats::nlminb(fits[[1L]]$par, objective = problem$fn, gradient = problem$gr,
       control = list(iter.max = max_iter, eval.max = max_iter * 5L, rel.tol = tolerance,
                      x.tol = tolerance))

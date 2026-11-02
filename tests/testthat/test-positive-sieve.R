@@ -122,3 +122,25 @@ test_that("a revived inverse-link coefficient is refined after its restart", {
   objective <- cmbridge:::.sieve_link_objective(case$S, case$b, case$constant, case$link)
   expect_lt(objective$fn(fit$parameters), .61)
 })
+
+test_that("full-history nested fits revive flat directions with finite initialization", {
+  case<-readRDS(test_path('fixtures','sieve-full-history-nested.rds'))
+  fit<-cmbridge:::.sieve_link_solve(case$S,case$b,case$constant,case$link,1e-10,10000L)
+  expect_true(fit$converged)
+  expect_true(all(is.finite(fit$parameters)))
+  expect_equal(fit$values,1+exp(-fit$parameters))
+  expect_lte(max(fit$function_gradient,fit$coefficient_gradient),fit$tolerance)
+  problem<-cmbridge:::.sieve_link_objective(case$S,case$b,case$constant,case$link)
+  # Independently enumerate the four-dimensional quadratic's limiting faces.
+  # The production solver optimizes finite unrestricted link coefficients.
+  best<-Inf;reference<-NULL;p<-length(case$b)
+  for(mask in 0:(2^p-1)) {
+    fixed<-which(as.logical(intToBits(mask)[seq_len(p)]));free<-setdiff(seq_len(p),fixed)
+    value<-rep(1,p)
+    if(length(free)) value[free]<-solve(case$S[free,free,drop=FALSE],
+      case$b[free]-rowSums(case$S[free,fixed,drop=FALSE]))
+    loss<-as.numeric(crossprod(value,case$S%*%value)-2*sum(case$b*value))
+    if(all(value>=1)&&loss<best) {best<-loss;reference<-value}
+  }
+  expect_equal(fit$values,reference,tolerance=.002)
+})
